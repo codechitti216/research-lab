@@ -11,6 +11,7 @@ const LAB_ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PORTFOLIO_ROOT = path.join(LAB_ROOT, "..", "codechitti216.github.io");
 const DB_PATH = path.join(LAB_ROOT, "data", "db.json");
 const LEDGER_PATH = path.join(LAB_ROOT, "data", "ledger.json");
+const TRASH_LEDGER_PATH = path.join(LAB_ROOT, "data", "trash_ledger.json");
 const execAsync = promisify(exec);
 
 function createId() {
@@ -29,6 +30,14 @@ async function readJson(filePath: string) {
 
 async function writeJson(filePath: string, data: unknown) {
   await fs.writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+async function readJsonOrDefault(filePath: string, fallback: unknown) {
+  try {
+    return await readJson(filePath);
+  } catch {
+    return fallback;
+  }
 }
 
 async function readBody(req: NodeJS.ReadableStream) {
@@ -191,6 +200,38 @@ function researchLabPersistence() {
         } catch (error) {
           sendJson(res, 500, {
             error: error instanceof Error ? error.message : "Failed to archive card.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/trash-card") {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const db = await readJson(DB_PATH);
+          const trashLedger = await readJsonOrDefault(TRASH_LEDGER_PATH, []);
+          const cardIndex = db.findIndex((card: { id?: string }) => card.id === body.cardId);
+
+          if (cardIndex === -1) {
+            sendJson(res, 404, { error: "Card not found." });
+            return;
+          }
+
+          const [trashedCard] = db.splice(cardIndex, 1);
+          trashLedger.push({
+            timestamp: new Date().toISOString(),
+            cardId: trashedCard.id,
+            title: trashedCard.title,
+            track: trashedCard.track,
+            status: getCurrentStatus(trashedCard),
+            reason: String(body.reason || "").trim(),
+          });
+
+          await Promise.all([writeJson(DB_PATH, db), writeJson(TRASH_LEDGER_PATH, trashLedger)]);
+          sendJson(res, 200, { ok: true });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to trash card.",
           });
         }
         return;

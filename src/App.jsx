@@ -121,6 +121,18 @@ function ArchiveGlyph() {
   );
 }
 
+function TrashGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
 async function requestJson(url, options) {
   const response = await fetch(url, {
     headers: {
@@ -151,7 +163,9 @@ export function App() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [draggedCardId, setDraggedCardId] = useState(null);
   const [hoverStatus, setHoverStatus] = useState(null);
+  const [hoverTrash, setHoverTrash] = useState(false);
   const [showArchiveOverlay, setShowArchiveOverlay] = useState(false);
+  const [trashDraft, setTrashDraft] = useState(null);
   const [error, setError] = useState("");
   const [commandMessage, setCommandMessage] = useState("");
   const historyEvents = useMemo(() => flattenHistory(cards), [cards]);
@@ -238,7 +252,14 @@ export function App() {
       if (draftMove?.cardId === card.id && draftMove.fromStatus === currentStatus) {
         continue;
       }
-      byStatus[currentStatus]?.push(card);
+      if (trashDraft?.cardId === card.id && trashDraft.status === currentStatus) {
+        byStatus[currentStatus]?.push({
+          ...card,
+          isTrashDraft: true,
+        });
+      } else {
+        byStatus[currentStatus]?.push(card);
+      }
     }
 
     if (draftMove) {
@@ -261,13 +282,20 @@ export function App() {
     }
 
     return byStatus;
-  }, [activeCards, draftMove, newCardDraft]);
+  }, [activeCards, draftMove, newCardDraft, trashDraft]);
 
   const cancelDraftMove = () => {
     if (isCommitting) return;
     setDraftMove(null);
     setDraftComment("");
     setHoverStatus(null);
+    setHoverTrash(false);
+    setDraggedCardId(null);
+  };
+
+  const cancelTrashDraft = () => {
+    setTrashDraft(null);
+    setHoverTrash(false);
     setDraggedCardId(null);
   };
 
@@ -409,6 +437,42 @@ export function App() {
     }
   };
 
+  const openTrashDraft = (card) => {
+    if (!isInteractive) return;
+    setError("");
+    setTrashDraft({
+      cardId: card.id,
+      title: card.title,
+      status: getCurrentStatus(card),
+      reason: "",
+    });
+  };
+
+  const handleTrashCard = async () => {
+    if (!isInteractive || !trashDraft) return;
+    const reason = trashDraft.reason.trim();
+
+    if (!reason) {
+      setError("A reason is required to discard a card.");
+      return;
+    }
+
+    try {
+      setError("");
+      await requestJson("/api/trash-card", {
+        method: "POST",
+        body: JSON.stringify({
+          cardId: trashDraft.cardId,
+          reason,
+        }),
+      });
+      setCards((prev) => prev.filter((entry) => entry.id !== trashDraft.cardId));
+      cancelTrashDraft();
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+
   const handleArchiveCard = async (id, reason = "archived") => {
     if (!isInteractive) return;
 
@@ -469,6 +533,16 @@ export function App() {
     setHoverStatus(null);
     if (!card || getCurrentStatus(card) !== FINAL_STATUS) return;
     handleArchiveCard(card.id, "explored-successfully");
+  };
+
+  const handleTrashDrop = () => {
+    if (!isInteractive || !draggedCardId) return;
+    const card = cards.find((entry) => entry.id === draggedCardId);
+    setDraggedCardId(null);
+    setHoverStatus(null);
+    setHoverTrash(false);
+    if (!card) return;
+    openTrashDraft(card);
   };
 
   return (
@@ -566,23 +640,30 @@ export function App() {
                 {grouped[column.title].map((card) => {
                   const isDraftMove = Boolean(card.isDraftMove);
                   const isNewCard = Boolean(card.isNewCard);
+                  const isTrashDraft = Boolean(card.isTrashDraft);
+                  const isGhost = isInteractive && draggedCardId === card.id && !isDraftMove && !isNewCard && !isTrashDraft;
 
                   return (
                     <article
                       key={isNewCard ? "__new-card__" : isDraftMove ? `${card.id}-draft` : card.id}
-                      draggable={isInteractive && !isDraftMove && !isNewCard}
+                      draggable={isInteractive && !isDraftMove && !isNewCard && !isTrashDraft}
                       onDragStart={
-                        isInteractive && !isNewCard ? () => setDraggedCardId(card.id) : undefined
+                        isInteractive && !isNewCard && !isTrashDraft ? () => setDraggedCardId(card.id) : undefined
                       }
                       onDragEnd={
-                        isInteractive && !isNewCard
+                        isInteractive && !isNewCard && !isTrashDraft
                           ? () => {
                               setDraggedCardId(null);
                               setHoverStatus(null);
+                              setHoverTrash(false);
                             }
                           : undefined
                       }
-                      className="group/card border border-neutral-200 bg-white p-4 shadow-sm transition duration-normal hover:shadow-md"
+                      className={`group/card border border-neutral-200 bg-white p-4 shadow-sm transition duration-normal hover:shadow-md ${
+                        isGhost ? "opacity-20 scale-[0.98]" : ""
+                      } ${
+                        isDraftMove ? "ring-2 ring-emerald-200 scale-[1.02]" : ""
+                      }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-2">
@@ -613,15 +694,6 @@ export function App() {
                               title="Archive"
                             >
                               <ArchiveGlyph />
-                            </button>
-                          ) : null}
-                          {isInteractive && !isDraftMove && !isNewCard ? (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteCard(card.id)}
-                              className="opacity-0 transition duration-fast group-hover/card:opacity-100 text-xs text-neutral-400 hover:text-neutral-700"
-                            >
-                              Delete
                             </button>
                           ) : null}
                         </div>
@@ -727,6 +799,37 @@ export function App() {
                               className="rounded-sm bg-emerald-500 px-3 py-1.5 text-sm text-white transition duration-fast hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {isCommitting ? "Committing..." : "Commit"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {isInteractive && isTrashDraft ? (
+                        <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4">
+                          <textarea
+                            value={trashDraft?.reason || ""}
+                            onChange={(event) =>
+                              setTrashDraft((current) =>
+                                current ? { ...current, reason: event.target.value } : current
+                              )
+                            }
+                            placeholder="Why is this being discarded?"
+                            className="min-h-24 w-full border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-700 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-neutral-400"
+                          />
+                          <div className="flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={cancelTrashDraft}
+                              className="text-xs text-neutral-500 hover:text-neutral-900"
+                            >
+                              Keep
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleTrashCard}
+                              className="rounded-sm border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-sm text-white transition duration-fast hover:bg-neutral-700"
+                            >
+                              Discard
                             </button>
                           </div>
                         </div>
@@ -922,6 +1025,31 @@ export function App() {
                   <p className="text-sm text-neutral-500">No archived cards yet.</p>
                 )}
               </div>
+            </div>
+          </div>
+        ) : null}
+
+        {isInteractive ? (
+          <div
+            onDragOver={(event) => {
+              event.preventDefault();
+              setHoverTrash(true);
+            }}
+            onDragLeave={() => setHoverTrash(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              handleTrashDrop();
+            }}
+            className={`fixed bottom-6 left-6 z-40 flex items-center gap-3 border bg-white px-4 py-3 shadow-sm transition duration-normal ${
+              hoverTrash ? "border-neutral-900 shadow-md" : "border-neutral-200"
+            }`}
+          >
+            <div className="text-neutral-600">
+              <TrashGlyph />
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-neutral-400">Dustbin</div>
+              <div className="text-sm text-neutral-700">Discard with reason</div>
             </div>
           </div>
         ) : null}
