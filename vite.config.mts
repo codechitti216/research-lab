@@ -19,7 +19,7 @@ function createId() {
 
 function getCurrentStatus(card: { history?: Array<{ status?: string }>; status?: string }) {
   const history = Array.isArray(card.history) ? card.history : [];
-  return history[history.length - 1]?.status || card.status || "Hypothesis";
+  return history[history.length - 1]?.status || card.status || "Concepts & Ideas";
 }
 
 async function readJson(filePath: string) {
@@ -84,11 +84,21 @@ function researchLabPersistence() {
             title: String(body.title || "").trim() || "Untitled",
             track: body.track === "#Math" ? "#Math" : "#Code",
             description: String(body.description || "").trim(),
+            archived: false,
+            archiveReason: null,
+            links: {
+              githubUrl: String(body.githubUrl || "").trim(),
+              blogUrl: String(body.blogUrl || "").trim(),
+            },
             history: [
               {
-                status: body.status || "Hypothesis",
+                status: body.status || "Concepts & Ideas",
                 at: timestamp,
                 comment: String(body.description || "").trim(),
+                metadata: {
+                  githubUrl: String(body.githubUrl || "").trim(),
+                  blogUrl: String(body.blogUrl || "").trim(),
+                },
               },
             ],
           };
@@ -119,6 +129,10 @@ function researchLabPersistence() {
           const updatedCard = {
             ...db[cardIndex],
             description: String(body.description ?? db[cardIndex].description ?? ""),
+            links: {
+              githubUrl: String(body.githubUrl ?? db[cardIndex].links?.githubUrl ?? ""),
+              blogUrl: String(body.blogUrl ?? db[cardIndex].links?.blogUrl ?? ""),
+            },
           };
 
           db[cardIndex] = updatedCard;
@@ -153,6 +167,64 @@ function researchLabPersistence() {
         return;
       }
 
+      if (req.method === "POST" && url.pathname === "/api/archive-card") {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const db = await readJson(DB_PATH);
+          const cardIndex = db.findIndex((card: { id?: string }) => card.id === body.cardId);
+
+          if (cardIndex === -1) {
+            sendJson(res, 404, { error: "Card not found." });
+            return;
+          }
+
+          const updatedCard = {
+            ...db[cardIndex],
+            archived: true,
+            archiveReason: String(body.reason || "archived"),
+            archivedAt: new Date().toISOString(),
+          };
+
+          db[cardIndex] = updatedCard;
+          await writeJson(DB_PATH, db);
+          sendJson(res, 200, { card: updatedCard });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to archive card.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/unarchive-card") {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const db = await readJson(DB_PATH);
+          const cardIndex = db.findIndex((card: { id?: string }) => card.id === body.cardId);
+
+          if (cardIndex === -1) {
+            sendJson(res, 404, { error: "Card not found." });
+            return;
+          }
+
+          const updatedCard = {
+            ...db[cardIndex],
+            archived: false,
+            archiveReason: null,
+            archivedAt: null,
+          };
+
+          db[cardIndex] = updatedCard;
+          await writeJson(DB_PATH, db);
+          sendJson(res, 200, { card: updatedCard });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to unarchive card.",
+          });
+        }
+        return;
+      }
+
       if (req.method === "POST" && url.pathname === "/api/commit-move") {
         try {
           const body = JSON.parse(await readBody(req));
@@ -178,12 +250,20 @@ function researchLabPersistence() {
           const updatedCard = {
             ...card,
             description: String(body.comment ?? card.description ?? ""),
+            links: {
+              githubUrl: String(body.githubUrl ?? card.links?.githubUrl ?? ""),
+              blogUrl: String(body.blogUrl ?? card.links?.blogUrl ?? ""),
+            },
             history: [
               ...(Array.isArray(card.history) ? card.history : []),
               {
                 status: toStatus,
                 at: timestamp,
                 comment: String(body.comment ?? ""),
+                metadata: {
+                  githubUrl: String(body.githubUrl ?? card.links?.githubUrl ?? ""),
+                  blogUrl: String(body.blogUrl ?? card.links?.blogUrl ?? ""),
+                },
               },
             ],
           };

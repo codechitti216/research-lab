@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import seedCards from "../data/db.json";
 
-const STATUSES = ["Hypothesis", "Sandboxing", "Results", "Artifacts", "Marketing"];
+const COLUMNS = [
+  { title: "Concepts & Ideas", border: "border-sky-200" },
+  { title: "Setup", border: "border-purple-200" },
+  { title: "Sandboxing", border: "border-amber-200" },
+  { title: "Results", border: "border-emerald-200" },
+  { title: "Artifacts", border: "border-slate-200" },
+  { title: "Broadcast", border: "border-indigo-200" },
+];
+const STATUSES = COLUMNS.map((column) => column.title);
+const INITIAL_STATUS = STATUSES[0];
+const FINAL_STATUS = STATUSES[STATUSES.length - 1];
 const TRACK_TAGS = ["#Math", "#Code"];
 const BUILD_STAMP = __BUILD_STAMP__;
 const HEATMAP_WEEKS = 16;
@@ -50,6 +60,7 @@ function flattenHistory(cards) {
       at: entry.at,
       status: entry.status,
       comment: entry.comment || "",
+      metadata: entry.metadata || {},
       type: index === 0 ? "created" : "moved",
       fromStatus: index > 0 ? history[index - 1]?.status || null : null,
     }));
@@ -68,13 +79,46 @@ function normalizeCards(input) {
   return Array.isArray(input)
     ? input.map((card) => ({
         ...card,
+        archived: Boolean(card.archived),
+        archiveReason: card.archiveReason || null,
+        links: {
+          githubUrl: card.links?.githubUrl || "",
+          blogUrl: card.links?.blogUrl || "",
+        },
         history: Array.isArray(card.history) ? card.history : [],
       }))
     : [];
 }
 
 function getCurrentStatus(card) {
-  return card.history?.[card.history.length - 1]?.status || card.status || "Hypothesis";
+  return card.history?.[card.history.length - 1]?.status || card.status || INITIAL_STATUS;
+}
+
+function LinkGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11 4" />
+      <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07L13 19" />
+    </svg>
+  );
+}
+
+function GitHubGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
+      <path d="M12 2C6.48 2 2 6.58 2 12.23c0 4.5 2.87 8.32 6.84 9.66.5.1.66-.22.66-.49v-1.72c-2.78.62-3.37-1.37-3.37-1.37-.46-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.35 1.12 2.92.86.09-.67.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.09 0-1.13.39-2.05 1.03-2.77-.1-.26-.45-1.31.1-2.73 0 0 .84-.28 2.75 1.06A9.3 9.3 0 0 1 12 6.84c.85 0 1.7.12 2.5.35 1.9-1.34 2.74-1.06 2.74-1.06.56 1.42.21 2.47.1 2.73.64.72 1.03 1.64 1.03 2.77 0 3.96-2.34 4.82-4.58 5.08.36.32.69.95.69 1.92v2.85c0 .28.17.6.68.49A10.25 10.25 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z" />
+    </svg>
+  );
+}
+
+function ArchiveGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8h14v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2Z" />
+      <path d="M10 12h4" />
+    </svg>
+  );
 }
 
 async function requestJson(url, options) {
@@ -107,10 +151,19 @@ export function App() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [draggedCardId, setDraggedCardId] = useState(null);
   const [hoverStatus, setHoverStatus] = useState(null);
+  const [showArchiveOverlay, setShowArchiveOverlay] = useState(false);
   const [error, setError] = useState("");
   const [commandMessage, setCommandMessage] = useState("");
   const historyEvents = useMemo(() => flattenHistory(cards), [cards]);
   const todayKey = toDateKey(new Date());
+  const activeCards = useMemo(() => cards.filter((card) => !card.archived), [cards]);
+  const archivedCards = useMemo(
+    () =>
+      cards
+        .filter((card) => card.archived)
+        .sort((a, b) => new Date((b.archivedAt || 0)) - new Date((a.archivedAt || 0))),
+    [cards]
+  );
 
   const todaysEvents = useMemo(
     () =>
@@ -180,7 +233,7 @@ export function App() {
   const grouped = useMemo(() => {
     const byStatus = Object.fromEntries(STATUSES.map((status) => [status, []]));
 
-    for (const card of cards) {
+    for (const card of activeCards) {
       const currentStatus = getCurrentStatus(card);
       if (draftMove?.cardId === card.id && draftMove.fromStatus === currentStatus) {
         continue;
@@ -189,7 +242,7 @@ export function App() {
     }
 
     if (draftMove) {
-      const sourceCard = cards.find((card) => card.id === draftMove.cardId);
+      const sourceCard = activeCards.find((card) => card.id === draftMove.cardId);
       if (sourceCard) {
         byStatus[draftMove.toStatus]?.unshift({
           ...sourceCard,
@@ -208,7 +261,7 @@ export function App() {
     }
 
     return byStatus;
-  }, [cards, draftMove, newCardDraft]);
+  }, [activeCards, draftMove, newCardDraft]);
 
   const cancelDraftMove = () => {
     if (isCommitting) return;
@@ -251,6 +304,8 @@ export function App() {
       track: card.track,
       fromStatus,
       toStatus,
+      githubUrl: card.links?.githubUrl || "",
+      blogUrl: card.links?.blogUrl || "",
     });
   };
 
@@ -307,6 +362,8 @@ export function App() {
           cardId: draftMove.cardId,
           toStatus: draftMove.toStatus,
           comment: draftComment,
+          githubUrl: draftMove.githubUrl,
+          blogUrl: draftMove.blogUrl,
         }),
       });
 
@@ -352,6 +409,50 @@ export function App() {
     }
   };
 
+  const handleArchiveCard = async (id, reason = "archived") => {
+    if (!isInteractive) return;
+
+    try {
+      setError("");
+      await requestJson("/api/archive-card", {
+        method: "POST",
+        body: JSON.stringify({ cardId: id, reason }),
+      });
+      setCards((prev) =>
+        prev.map((card) =>
+          card.id === id
+            ? {
+                ...card,
+                archived: true,
+                archivedAt: new Date().toISOString(),
+                archiveReason: reason,
+              }
+            : card
+        )
+      );
+      if (draftMove?.cardId === id) {
+        cancelDraftMove();
+      }
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+
+  const handleUnarchiveCard = async (id) => {
+    if (!isInteractive) return;
+
+    try {
+      setError("");
+      const { card } = await requestJson("/api/unarchive-card", {
+        method: "POST",
+        body: JSON.stringify({ cardId: id }),
+      });
+      setCards((prev) => prev.map((entry) => (entry.id === id ? card : entry)));
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+
   const handleDrop = (status) => {
     if (!isInteractive || !draggedCardId) return;
     const card = cards.find((entry) => entry.id === draggedCardId);
@@ -359,6 +460,15 @@ export function App() {
     setHoverStatus(null);
     if (!card) return;
     openMoveDraft(card, status);
+  };
+
+  const handleCompleteDrop = () => {
+    if (!isInteractive || !draggedCardId) return;
+    const card = cards.find((entry) => entry.id === draggedCardId);
+    setDraggedCardId(null);
+    setHoverStatus(null);
+    if (!card || getCurrentStatus(card) !== FINAL_STATUS) return;
+    handleArchiveCard(card.id, "explored-successfully");
   };
 
   return (
@@ -408,39 +518,39 @@ export function App() {
           </div>
         ) : null}
 
-        <main className="grid gap-8 border border-neutral-200 bg-white p-6 xl:grid-cols-5">
-          {STATUSES.map((status, index) => (
+        <main className="grid gap-8 border border-neutral-200 bg-white p-6 xl:grid-cols-6">
+          {COLUMNS.map((column, index) => (
             <section
-              key={status}
+              key={column.title}
               onDragOver={
                 isInteractive
                   ? (event) => {
                       event.preventDefault();
-                      setHoverStatus(status);
+                      setHoverStatus(column.title);
                     }
                   : undefined
               }
               onDragLeave={
                 isInteractive
-                  ? () => setHoverStatus((current) => (current === status ? null : current))
+                  ? () => setHoverStatus((current) => (current === column.title ? null : current))
                   : undefined
               }
               onDrop={
                 isInteractive
                   ? (event) => {
                       event.preventDefault();
-                      handleDrop(status);
+                      handleDrop(column.title);
                     }
                   : undefined
               }
               className={`group min-h-[30rem] ${index > 0 ? "border-l border-neutral-200 pl-8" : ""}`}
             >
-              <header className="mb-5 flex items-start justify-between gap-3">
-                <h2 className="font-serif text-xl font-medium text-neutral-900">{status}</h2>
-                {isInteractive && status === "Hypothesis" ? (
+              <header className={`mb-5 flex items-start justify-between gap-3 border-t-2 pt-3 ${column.border}`}>
+                <h2 className="font-serif text-xl font-medium text-neutral-900">{column.title}</h2>
+                {isInteractive && column.title === INITIAL_STATUS ? (
                   <button
                     type="button"
-                    onClick={() => startNewCardDraft(status)}
+                    onClick={() => startNewCardDraft(column.title)}
                     className="opacity-0 transition duration-fast group-hover:opacity-100 text-xs text-neutral-500 hover:text-neutral-900"
                   >
                     Add
@@ -450,10 +560,10 @@ export function App() {
 
               <div
                 className={`space-y-4 rounded-sm transition duration-normal ${
-                  hoverStatus === status ? "ring-1 ring-neutral-300" : ""
+                  hoverStatus === column.title ? "ring-1 ring-neutral-300" : ""
                 }`}
               >
-                {grouped[status].map((card) => {
+                {grouped[column.title].map((card) => {
                   const isDraftMove = Boolean(card.isDraftMove);
                   const isNewCard = Boolean(card.isNewCard);
 
@@ -475,18 +585,46 @@ export function App() {
                       className="group/card border border-neutral-200 bg-white p-4 shadow-sm transition duration-normal hover:shadow-md"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <h3 className="font-serif text-lg font-medium text-neutral-900">
-                          {isNewCard ? "New Card" : card.title}
-                        </h3>
-                        {isInteractive && !isDraftMove && !isNewCard ? (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteCard(card.id)}
-                            className="opacity-0 transition duration-fast group-hover/card:opacity-100 text-xs text-neutral-400 hover:text-neutral-700"
-                          >
-                            Delete
-                          </button>
-                        ) : null}
+                        <div className="space-y-2">
+                          <h3 className="font-serif text-lg font-medium text-neutral-900">
+                            {isNewCard ? "New Card" : card.title}
+                          </h3>
+                          {!isNewCard && (card.links?.githubUrl || card.links?.blogUrl) ? (
+                            <div className="flex items-center gap-2 text-neutral-500">
+                              {card.links?.githubUrl ? (
+                                <a href={card.links.githubUrl} target="_blank" rel="noreferrer" className="hover:text-neutral-900">
+                                  <GitHubGlyph />
+                                </a>
+                              ) : null}
+                              {card.links?.blogUrl ? (
+                                <a href={card.links.blogUrl} target="_blank" rel="noreferrer" className="hover:text-neutral-900">
+                                  <LinkGlyph />
+                                </a>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {isInteractive && !isDraftMove && !isNewCard ? (
+                            <button
+                              type="button"
+                              onClick={() => handleArchiveCard(card.id)}
+                              className="opacity-0 transition duration-fast group-hover/card:opacity-100 text-neutral-400 hover:text-neutral-700"
+                              title="Archive"
+                            >
+                              <ArchiveGlyph />
+                            </button>
+                          ) : null}
+                          {isInteractive && !isDraftMove && !isNewCard ? (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCard(card.id)}
+                              className="opacity-0 transition duration-fast group-hover/card:opacity-100 text-xs text-neutral-400 hover:text-neutral-700"
+                            >
+                              Delete
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
 
                       {isInteractive && isNewCard ? (
@@ -555,6 +693,32 @@ export function App() {
                             placeholder="Log the Delta for this move..."
                             className="min-h-28 w-full border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-700 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-emerald-500"
                           />
+                          {draftMove.toStatus === "Artifacts" ? (
+                            <>
+                              <input
+                                type="url"
+                                value={draftMove.githubUrl || ""}
+                                onChange={(event) =>
+                                  setDraftMove((current) =>
+                                    current ? { ...current, githubUrl: event.target.value } : current
+                                  )
+                                }
+                                placeholder="GitHub Repo URL"
+                                className="w-full border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-700 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-neutral-400"
+                              />
+                              <input
+                                type="url"
+                                value={draftMove.blogUrl || ""}
+                                onChange={(event) =>
+                                  setDraftMove((current) =>
+                                    current ? { ...current, blogUrl: event.target.value } : current
+                                  )
+                                }
+                                placeholder="Blog/Documentation URL"
+                                className="w-full border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-700 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-neutral-400"
+                              />
+                            </>
+                          ) : null}
                           <div className="flex justify-end">
                             <button
                               type="button"
@@ -571,7 +735,20 @@ export function App() {
                   );
                 })}
 
-                {grouped[status].length === 0 ? (
+                {isInteractive && column.title === FINAL_STATUS ? (
+                  <div
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      handleCompleteDrop();
+                    }}
+                    className="border border-dashed border-emerald-200 px-4 py-5 text-center text-xs text-neutral-500"
+                  >
+                    Move beyond Broadcast → Explored Successfully
+                  </div>
+                ) : null}
+
+                {grouped[column.title].length === 0 ? (
                   <div className="border border-dashed border-neutral-200 bg-white px-4 py-10" />
                 ) : null}
               </div>
@@ -687,6 +864,67 @@ export function App() {
             </div>
           </article>
         </section>
+
+        <div className="mt-8 text-sm text-neutral-500">
+          Archived: {archivedCards.length} |{" "}
+          <button
+            type="button"
+            onClick={() => setShowArchiveOverlay(true)}
+            className="text-neutral-700 underline-offset-2 hover:underline"
+          >
+            View All
+          </button>
+        </div>
+
+        {showArchiveOverlay ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/20 px-4">
+            <div className="max-h-[80vh] w-full max-w-3xl overflow-y-auto border border-neutral-200 bg-white p-6 shadow-md">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-serif text-2xl font-medium text-neutral-900">Archived Work</h2>
+                  <p className="mt-2 text-sm text-neutral-600">
+                    Quietly stored explorations and completed research threads.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowArchiveOverlay(false)}
+                  className="text-xs text-neutral-500 hover:text-neutral-900"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {archivedCards.length ? (
+                  archivedCards.map((card) => (
+                    <div key={card.id} className="flex items-center justify-between border border-neutral-200 p-4">
+                      <div>
+                        <div className="font-serif text-lg text-neutral-900">{card.title}</div>
+                        <div className="mt-1 text-sm text-neutral-500">
+                          {card.archiveReason === "explored-successfully"
+                            ? "Explored Successfully"
+                            : "Archived"}
+                        </div>
+                      </div>
+                      {isInteractive ? (
+                        <button
+                          type="button"
+                          onClick={() => handleUnarchiveCard(card.id)}
+                          className="text-xs text-neutral-600 hover:text-neutral-900"
+                        >
+                          Un-archive
+                        </button>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-neutral-500">No archived cards yet.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

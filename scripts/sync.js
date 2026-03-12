@@ -46,11 +46,14 @@ function ensureDir(dirPath) {
 
 function normalizeStatus(status) {
   const s = String(status || '').trim().toLowerCase();
+  if (s.startsWith('concept')) return 'concepts-ideas';
+  if (s.startsWith('setup')) return 'setup';
   if (s.startsWith('hyp')) return 'hypothesis';
   if (s.startsWith('sand')) return 'sandboxing';
   if (s.startsWith('res')) return 'results';
   if (s.startsWith('art')) return 'artifacts';
   if (s.startsWith('mark')) return 'marketing';
+  if (s.startsWith('broad')) return 'broadcast';
   return s || 'hypothesis';
 }
 
@@ -88,6 +91,7 @@ function computeSidewaysStreaks(entries) {
   const perTrackDays = new Map(); // track -> Set<YYYY-MM-DD>
 
   for (const entry of entries) {
+    if (entry.archived) continue;
     const track = normalizeTrackTag(entry.track);
     const history = Array.isArray(entry.history) ? entry.history : [];
     for (let i = 1; i < history.length; i += 1) {
@@ -135,6 +139,7 @@ function buildKanbanPayload(entries) {
   const tasks = [];
 
   for (const entry of entries) {
+    if (entry.archived) continue;
     const history = Array.isArray(entry.history) ? entry.history : [];
     const lastMovement = history[history.length - 1] || {};
     const status = normalizeStatus(lastMovement.status || entry.status);
