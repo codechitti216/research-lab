@@ -258,6 +258,9 @@ function researchLabPersistence() {
 
 export default defineConfig({
   base: "/research-lab/",
+  define: {
+    __BUILD_STAMP__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [tailwindcss(), react(), researchLabPersistence()],
   server: {
     port: 5173

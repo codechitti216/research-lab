@@ -3,6 +3,7 @@ import seedCards from "../data/db.json";
 
 const STATUSES = ["Hypothesis", "Sandboxing", "Resolved"];
 const TRACK_TAGS = ["#Math", "#Code"];
+const BUILD_STAMP = __BUILD_STAMP__;
 
 function normalizeCards(input) {
   return Array.isArray(input)
@@ -202,9 +203,9 @@ export function App() {
   return (
     <div className="min-h-screen bg-neutral-50 px-6 py-8 md:px-10">
       <div className="mx-auto max-w-7xl">
-        {import.meta.env.DEV && (
-          <div className="mb-4 flex items-center justify-between border border-neutral-200 bg-white px-4 py-3">
-            <div className="font-serif text-lg font-medium text-neutral-900">Research Lab</div>
+        <div className="mb-4 flex items-center justify-between border border-neutral-200 bg-white px-4 py-3">
+          <div className="font-serif text-lg font-medium text-neutral-900">Research Lab</div>
+          {import.meta.env.DEV ? (
             <div className="flex items-center gap-2">
               <div className="mr-2 text-xs text-neutral-500">
                 {commandMessage || "Command Center"}
@@ -235,8 +236,10 @@ export function App() {
                 {isPublishing ? "Publishing..." : "Publish to Cloud"}
               </button>
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="text-[11px] text-neutral-400">Public build: {BUILD_STAMP}</div>
+          )}
+        </div>
 
         {error ? (
           <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
