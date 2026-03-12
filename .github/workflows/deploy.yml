@@ -28,10 +28,10 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci # Faster and more reliable for CI/CD than 'npm install'
 
       - name: Build
-        run: npm run build
+        run: npx vite build # Using 'npx' explicitly calls the local binary
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
