@@ -52,26 +52,15 @@ async function runCommand(command: string, cwd: string) {
   });
 }
 
-async function stageCommitAndPush(repoRoot: string, message: string) {
-  await runCommand("git add .", repoRoot);
+function quotePath(filePath: string) {
+  return `"${filePath.replace(/"/g, '\\"')}"`;
+}
 
-  let hasChanges = false;
-  try {
-    await runCommand("git diff --cached --quiet", repoRoot);
-  } catch (error) {
-    if ((error as { code?: number }).code === 1) {
-      hasChanges = true;
-    } else {
-      throw error;
-    }
-  }
-
-  if (hasChanges) {
-    await runCommand(`git commit -m "${message.replace(/"/g, '\\"')}"`, repoRoot);
-  }
-
-  await runCommand("git push", repoRoot);
-  return { committed: hasChanges };
+async function publishRepo(repoRoot: string, message: string) {
+  const command = `cd /d ${quotePath(repoRoot)} && git add . && (git diff --cached --quiet || git commit -m "${message.replace(/"/g, '\\"')}") && git push`;
+  return execAsync(command, {
+    windowsHide: true,
+  });
 }
 
 function researchLabPersistence() {
@@ -236,16 +225,13 @@ function researchLabPersistence() {
 
       if (req.method === "POST" && url.pathname === "/api/publish") {
         try {
-          const timestamp = new Date().toISOString();
-          const message = `research(telemetry): update ${timestamp}`;
-          const researchLab = await stageCommitAndPush(LAB_ROOT, message);
-          const portfolio = await stageCommitAndPush(PORTFOLIO_ROOT, message);
+          const researchLab = await publishRepo(LAB_ROOT, "research: log update");
+          const portfolio = await publishRepo(PORTFOLIO_ROOT, "telemetry: sync");
 
           sendJson(res, 200, {
             ok: true,
             researchLab,
             portfolio,
-            message,
           });
         } catch (error) {
           sendJson(res, 500, {

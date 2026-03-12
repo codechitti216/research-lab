@@ -194,9 +194,9 @@ export function App() {
   return (
     <div className="min-h-screen bg-neutral-50 px-6 py-8 md:px-10">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-4 flex items-center justify-between border border-neutral-200 bg-white px-4 py-3">
-          <div className="font-serif text-lg font-medium text-neutral-900">Research Lab</div>
-          {import.meta.env.DEV && (
+        {import.meta.env.DEV && (
+          <div className="mb-4 flex items-center justify-between border border-neutral-200 bg-white px-4 py-3">
+            <div className="font-serif text-lg font-medium text-neutral-900">Research Lab</div>
             <div className="flex items-center gap-2">
               <div className="mr-2 text-xs text-neutral-500">
                 {commandMessage || "Command Center"}
@@ -227,8 +227,8 @@ export function App() {
                 {isPublishing ? "Publishing..." : "Publish to Cloud"}
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {error ? (
           <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
