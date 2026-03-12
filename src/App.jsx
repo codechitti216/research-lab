@@ -35,6 +35,7 @@ async function requestJson(url, options) {
 }
 
 export function App() {
+  const isDev = import.meta.env.DEV;
   const [cards, setCards] = useState(() => normalizeCards(seedCards));
   const [draftMove, setDraftMove] = useState(null);
   const [draftComment, setDraftComment] = useState("");
@@ -78,6 +79,7 @@ export function App() {
   };
 
   useEffect(() => {
+    if (!isDev) return undefined;
     if (!draftMove) return undefined;
 
     const handleUndo = (event) => {
@@ -90,9 +92,10 @@ export function App() {
 
     window.addEventListener("keydown", handleUndo);
     return () => window.removeEventListener("keydown", handleUndo);
-  }, [draftMove, isCommitting]);
+  }, [draftMove, isCommitting, isDev]);
 
   const openMoveDraft = (card, toStatus) => {
+    if (!isDev) return;
     const fromStatus = getCurrentStatus(card);
     if (!toStatus || fromStatus === toStatus) return;
 
@@ -108,6 +111,7 @@ export function App() {
   };
 
   const handleAddCard = async (status) => {
+    if (!isDev) return;
     const title = window.prompt("Title?");
     if (!title) return;
 
@@ -130,6 +134,7 @@ export function App() {
   };
 
   const handleCommitMove = async () => {
+    if (!isDev) return;
     if (!draftMove) return;
 
     try {
@@ -154,6 +159,7 @@ export function App() {
   };
 
   const handleCommand = async (path, start, stop, successMessage) => {
+    if (!isDev) return;
     try {
       start(true);
       setError("");
@@ -168,6 +174,7 @@ export function App() {
   };
 
   const handleDeleteCard = async (id) => {
+    if (!isDev) return;
     try {
       setError("");
       await requestJson(`/api/cards/${id}`, {
@@ -183,6 +190,7 @@ export function App() {
   };
 
   const handleDrop = (status) => {
+    if (!isDev) return;
     if (!draggedCardId) return;
     const card = cards.find((entry) => entry.id === draggedCardId);
     setDraggedCardId(null);
@@ -240,28 +248,40 @@ export function App() {
           {STATUSES.map((status, index) => (
             <section
               key={status}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setHoverStatus(status);
-              }}
-              onDragLeave={() =>
-                setHoverStatus((current) => (current === status ? null : current))
+              onDragOver={
+                isDev
+                  ? (event) => {
+                      event.preventDefault();
+                      setHoverStatus(status);
+                    }
+                  : undefined
               }
-              onDrop={(event) => {
-                event.preventDefault();
-                handleDrop(status);
-              }}
+              onDragLeave={
+                isDev
+                  ? () => setHoverStatus((current) => (current === status ? null : current))
+                  : undefined
+              }
+              onDrop={
+                isDev
+                  ? (event) => {
+                      event.preventDefault();
+                      handleDrop(status);
+                    }
+                  : undefined
+              }
               className={`group min-h-[30rem] ${index > 0 ? "border-l border-neutral-200 pl-8" : ""}`}
             >
               <header className="mb-5 flex items-start justify-between gap-3">
                 <h2 className="font-serif text-xl font-medium text-neutral-900">{status}</h2>
-                <button
-                  type="button"
-                  onClick={() => handleAddCard(status)}
-                  className="opacity-0 transition duration-fast group-hover:opacity-100 text-xs text-neutral-500 hover:text-neutral-900"
-                >
-                  Add
-                </button>
+                {isDev ? (
+                  <button
+                    type="button"
+                    onClick={() => handleAddCard(status)}
+                    className="opacity-0 transition duration-fast group-hover:opacity-100 text-xs text-neutral-500 hover:text-neutral-900"
+                  >
+                    Add
+                  </button>
+                ) : null}
               </header>
 
               <div
@@ -274,19 +294,23 @@ export function App() {
                   return (
                     <article
                       key={isDraftMove ? `${card.id}-draft` : card.id}
-                      draggable={!isDraftMove}
-                      onDragStart={() => setDraggedCardId(card.id)}
-                      onDragEnd={() => {
-                        setDraggedCardId(null);
-                        setHoverStatus(null);
-                      }}
+                      draggable={isDev && !isDraftMove}
+                      onDragStart={isDev ? () => setDraggedCardId(card.id) : undefined}
+                      onDragEnd={
+                        isDev
+                          ? () => {
+                              setDraggedCardId(null);
+                              setHoverStatus(null);
+                            }
+                          : undefined
+                      }
                       className="group/card border border-neutral-200 bg-white p-4 shadow-sm transition duration-normal hover:shadow-md"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="font-serif text-lg font-medium text-neutral-900">
                           {card.title}
                         </h3>
-                        {!isDraftMove ? (
+                        {isDev && !isDraftMove ? (
                           <button
                             type="button"
                             onClick={() => handleDeleteCard(card.id)}
@@ -297,7 +321,7 @@ export function App() {
                         ) : null}
                       </div>
 
-                      {isDraftMove ? (
+                      {isDev && isDraftMove ? (
                         <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4">
                           <textarea
                             value={draftComment}
