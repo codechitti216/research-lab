@@ -1,0 +1,281 @@
+import { exec } from "node:child_process";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react-swc";
+import { defineConfig } from "vite";
+
+const LAB_ROOT = fileURLToPath(new URL(".", import.meta.url));
+const PORTFOLIO_ROOT = path.join(LAB_ROOT, "..", "codechitti216.github.io");
+const DB_PATH = path.join(LAB_ROOT, "data", "db.json");
+const LEDGER_PATH = path.join(LAB_ROOT, "data", "ledger.json");
+const execAsync = promisify(exec);
+
+function createId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getCurrentStatus(card: { history?: Array<{ status?: string }>; status?: string }) {
+  const history = Array.isArray(card.history) ? card.history : [];
+  return history[history.length - 1]?.status || card.status || "Hypothesis";
+}
+
+async function readJson(filePath: string) {
+  const raw = await fs.readFile(filePath, "utf8");
+  return JSON.parse(raw);
+}
+
+async function writeJson(filePath: string, data: unknown) {
+  await fs.writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+async function readBody(req: NodeJS.ReadableStream) {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function sendJson(res: import("node:http").ServerResponse, status: number, data: unknown) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(data));
+}
+
+async function runCommand(command: string, cwd: string) {
+  return execAsync(command, {
+    cwd,
+    windowsHide: true,
+  });
+}
+
+async function stageCommitAndPush(repoRoot: string, message: string) {
+  await runCommand("git add .", repoRoot);
+
+  let hasChanges = false;
+  try {
+    await runCommand("git diff --cached --quiet", repoRoot);
+  } catch (error) {
+    if ((error as { code?: number }).code === 1) {
+      hasChanges = true;
+    } else {
+      throw error;
+    }
+  }
+
+  if (hasChanges) {
+    await runCommand(`git commit -m "${message.replace(/"/g, '\\"')}"`, repoRoot);
+  }
+
+  await runCommand("git push", repoRoot);
+  return { committed: hasChanges };
+}
+
+function researchLabPersistence() {
+  const attachPersistenceRoutes = (
+    middlewares: import("connect").ServerStack | import("vite").ViteDevServer["middlewares"]
+  ) => {
+    middlewares.use(async (req, res, next) => {
+      const url = req.url ? new URL(req.url, "http://localhost") : null;
+      if (!url) {
+        next();
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/cards") {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const db = await readJson(DB_PATH);
+          const timestamp = new Date().toISOString();
+          const card = {
+            id: createId(),
+            title: String(body.title || "").trim() || "Untitled",
+            track: body.track === "#Math" ? "#Math" : "#Code",
+            description: String(body.description || "").trim(),
+            history: [
+              {
+                status: body.status || "Hypothesis",
+                at: timestamp,
+              },
+            ],
+          };
+
+          db.push(card);
+          await writeJson(DB_PATH, db);
+          sendJson(res, 200, { card });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to create card.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "PATCH" && url.pathname.startsWith("/api/cards/")) {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const cardId = decodeURIComponent(url.pathname.replace("/api/cards/", ""));
+          const db = await readJson(DB_PATH);
+          const cardIndex = db.findIndex((card: { id?: string }) => card.id === cardId);
+
+          if (cardIndex === -1) {
+            sendJson(res, 404, { error: "Card not found." });
+            return;
+          }
+
+          const updatedCard = {
+            ...db[cardIndex],
+            description: String(body.description ?? db[cardIndex].description ?? ""),
+          };
+
+          db[cardIndex] = updatedCard;
+          await writeJson(DB_PATH, db);
+          sendJson(res, 200, { card: updatedCard });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to update card.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "DELETE" && url.pathname.startsWith("/api/cards/")) {
+        try {
+          const cardId = decodeURIComponent(url.pathname.replace("/api/cards/", ""));
+          const db = await readJson(DB_PATH);
+          const nextDb = db.filter((card: { id?: string }) => card.id !== cardId);
+
+          if (nextDb.length === db.length) {
+            sendJson(res, 404, { error: "Card not found." });
+            return;
+          }
+
+          await writeJson(DB_PATH, nextDb);
+          sendJson(res, 200, { ok: true });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to delete card.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/commit-move") {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const db = await readJson(DB_PATH);
+          const ledger = await readJson(LEDGER_PATH);
+          const cardIndex = db.findIndex((card: { id?: string }) => card.id === body.cardId);
+
+          if (cardIndex === -1) {
+            sendJson(res, 404, { error: "Card not found in db.json." });
+            return;
+          }
+
+          const card = db[cardIndex];
+          const fromStatus = getCurrentStatus(card);
+          const toStatus = String(body.toStatus || "").trim();
+
+          if (!toStatus || toStatus === fromStatus) {
+            sendJson(res, 400, { error: "Move is unchanged." });
+            return;
+          }
+
+          const timestamp = new Date().toISOString();
+          const updatedCard = {
+            ...card,
+            description: String(body.comment ?? card.description ?? ""),
+            history: [
+              ...(Array.isArray(card.history) ? card.history : []),
+              {
+                status: toStatus,
+                at: timestamp,
+              },
+            ],
+          };
+
+          db[cardIndex] = updatedCard;
+          ledger.push({
+            timestamp,
+            cardId: updatedCard.id,
+            title: updatedCard.title,
+            track: updatedCard.track,
+            fromStatus,
+            toStatus,
+            comment: String(body.comment ?? ""),
+          });
+
+          await Promise.all([writeJson(DB_PATH, db), writeJson(LEDGER_PATH, ledger)]);
+          sendJson(res, 200, { card: updatedCard });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to commit move.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/sync") {
+        try {
+          const result = await runCommand("node scripts/sync.js", LAB_ROOT);
+          sendJson(res, 200, {
+            ok: true,
+            stdout: result.stdout,
+            stderr: result.stderr,
+          });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to sync portfolio.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/publish") {
+        try {
+          const timestamp = new Date().toISOString();
+          const message = `research(telemetry): update ${timestamp}`;
+          const researchLab = await stageCommitAndPush(LAB_ROOT, message);
+          const portfolio = await stageCommitAndPush(PORTFOLIO_ROOT, message);
+
+          sendJson(res, 200, {
+            ok: true,
+            researchLab,
+            portfolio,
+            message,
+          });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to publish repositories.",
+          });
+        }
+        return;
+      }
+
+      next();
+    });
+  };
+
+  return {
+    name: "research-lab-persistence",
+    configureServer(server: import("vite").ViteDevServer) {
+      attachPersistenceRoutes(server.middlewares);
+    },
+    configurePreviewServer(server: import("vite").PreviewServer) {
+      attachPersistenceRoutes(server.middlewares);
+    },
+  };
+}
+
+export default defineConfig({
+  base: "/research-lab/",
+  plugins: [tailwindcss(), react(), researchLabPersistence()],
+  server: {
+    port: 5173
+  }
+});
+
+
