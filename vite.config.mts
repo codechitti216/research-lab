@@ -88,6 +88,7 @@ function researchLabPersistence() {
               {
                 status: body.status || "Hypothesis",
                 at: timestamp,
+                comment: String(body.description || "").trim(),
               },
             ],
           };
@@ -182,6 +183,7 @@ function researchLabPersistence() {
               {
                 status: toStatus,
                 at: timestamp,
+                comment: String(body.comment ?? ""),
               },
             ],
           };

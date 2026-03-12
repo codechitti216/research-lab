@@ -48,7 +48,9 @@ function normalizeStatus(status) {
   const s = String(status || '').trim().toLowerCase();
   if (s.startsWith('hyp')) return 'hypothesis';
   if (s.startsWith('sand')) return 'sandboxing';
-  if (s.startsWith('res')) return 'resolved';
+  if (s.startsWith('res')) return 'results';
+  if (s.startsWith('art')) return 'artifacts';
+  if (s.startsWith('mark')) return 'marketing';
   return s || 'hypothesis';
 }
 
@@ -82,7 +84,7 @@ function getWeekStart(dateLike) {
 }
 
 function computeSidewaysStreaks(entries) {
-  // Sideways = movements between non-resolved states (Hypothesis <-> Sandboxing)
+  // Sideways = movements between in-progress states before results are produced.
   const perTrackDays = new Map(); // track -> Set<YYYY-MM-DD>
 
   for (const entry of entries) {
@@ -92,7 +94,7 @@ function computeSidewaysStreaks(entries) {
       const prev = normalizeStatus(history[i - 1].status);
       const curr = normalizeStatus(history[i].status);
       if (prev === curr) continue;
-      if (prev === 'resolved' || curr === 'resolved') continue;
+      if (prev === 'results' || curr === 'results') continue;
       const key = getDateKey(history[i].at);
       if (!key) continue;
       if (!perTrackDays.has(track)) perTrackDays.set(track, new Set());
@@ -187,7 +189,7 @@ export default function StoryFor${todayKey.replace(/-/g, '_')}() {
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Story of the Day – {storyDate}</h1>
         <p className="text-sm text-gray-600">
-          A narrative of how hypotheses and sandboxes moved across the board today.
+          A narrative of how ideas moved across the research pipeline today.
         </p>
       </header>
 
@@ -257,9 +259,9 @@ function buildStoryLinks(ledgerEntries, dbEntries) {
     const from = normalizeStatus(entry.fromStatus);
     const to = normalizeStatus(entry.toStatus);
     if (!from || !to) continue;
-    // Sideways win = non-resolved -> non-resolved with a change
+    // Sideways win = non-results -> non-results with a change
     if (from === to) continue;
-    if (from === 'resolved' || to === 'resolved') continue;
+    if (from === 'results' || to === 'results') continue;
 
     let track = null;
     if (entry.track) {

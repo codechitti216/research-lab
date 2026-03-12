@@ -1,37 +1,14 @@
 [
   {
-    "id": "seed-1",
-    "title": "First Lab Experiment",
+    "id": "1773349557668-1aabd1d0c8fbe",
+    "title": "Dissecting Transformers",
     "track": "#Math",
-    "description": "Initial Daily Delta: seeding the research log.",
+    "description": "Dissecting Transformers",
     "history": [
       {
         "status": "Hypothesis",
-        "at": "2026-03-12T16:40:00Z"
-      }
-    ]
-  },
-  {
-    "id": "1773348498504-82f50a48cb5f4",
-    "title": "Dummy",
-    "track": "#Code",
-    "description": "Dummy",
-    "history": [
-      {
-        "status": "Hypothesis",
-        "at": "2026-03-12T20:48:18.504Z"
-      }
-    ]
-  },
-  {
-    "id": "1773348578295-4471801b5e057",
-    "title": "Dummy 2",
-    "track": "#Code",
-    "description": "",
-    "history": [
-      {
-        "status": "Hypothesis",
-        "at": "2026-03-12T20:49:38.295Z"
+        "at": "2026-03-12T21:05:57.668Z",
+        "comment": "Dissecting Transformers"
       }
     ]
   }
