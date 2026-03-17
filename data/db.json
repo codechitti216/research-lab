@@ -219,7 +219,7 @@
     "id": "1773677289209-26dfbc588a86e",
     "title": "Understanding Gaussian Splatting in detail",
     "track": "#Math",
-    "description": "Just tryna understand the fundamentals of Gaussian Splatting.",
+    "description": "",
     "archived": false,
     "archiveReason": null,
     "links": {
@@ -235,6 +235,24 @@
           "githubUrl": "",
           "blogUrl": ""
         }
+      },
+      {
+        "status": "Setup",
+        "at": "2026-03-17T12:30:01.407Z",
+        "comment": "Setting this up in CARLA.",
+        "metadata": {
+          "githubUrl": "",
+          "blogUrl": ""
+        }
+      },
+      {
+        "status": "Concepts & Ideas",
+        "at": "2026-03-17T12:33:16.608Z",
+        "comment": "",
+        "metadata": {
+          "githubUrl": "",
+          "blogUrl": ""
+        }
       }
     ]
   },
@@ -242,7 +260,7 @@
     "id": "1773750457240-1ad249ca4a9d3",
     "title": "Multiple Egos in CARLA",
     "track": "#Code",
-    "description": "Staging a 4-way deadlock between 4 ego vehicles and simulating the interaction.",
+    "description": "",
     "archived": false,
     "archiveReason": null,
     "links": {
@@ -254,6 +272,15 @@
         "status": "Concepts & Ideas",
         "at": "2026-03-17T12:27:37.240Z",
         "comment": "Staging a 4-way deadlock between 4 ego vehicles and simulating the interaction.",
+        "metadata": {
+          "githubUrl": "",
+          "blogUrl": ""
+        }
+      },
+      {
+        "status": "Setup",
+        "at": "2026-03-17T12:33:21.822Z",
+        "comment": "",
         "metadata": {
           "githubUrl": "",
           "blogUrl": ""
