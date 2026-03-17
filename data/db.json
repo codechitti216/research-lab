@@ -237,5 +237,28 @@
         }
       }
     ]
+  },
+  {
+    "id": "1773750457240-1ad249ca4a9d3",
+    "title": "Multiple Egos in CARLA",
+    "track": "#Code",
+    "description": "Staging a 4-way deadlock between 4 ego vehicles and simulating the interaction.",
+    "archived": false,
+    "archiveReason": null,
+    "links": {
+      "githubUrl": "",
+      "blogUrl": ""
+    },
+    "history": [
+      {
+        "status": "Concepts & Ideas",
+        "at": "2026-03-17T12:27:37.240Z",
+        "comment": "Staging a 4-way deadlock between 4 ego vehicles and simulating the interaction.",
+        "metadata": {
+          "githubUrl": "",
+          "blogUrl": ""
+        }
+      }
+    ]
   }
 ]
