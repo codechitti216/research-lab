@@ -12,6 +12,7 @@ const PORTFOLIO_ROOT = path.join(LAB_ROOT, "..", "codechitti216.github.io");
 const DB_PATH = path.join(LAB_ROOT, "data", "db.json");
 const LEDGER_PATH = path.join(LAB_ROOT, "data", "ledger.json");
 const TRASH_LEDGER_PATH = path.join(LAB_ROOT, "data", "trash_ledger.json");
+const TODOS_PATH = path.join(LAB_ROOT, "data", "todos.json");
 const execAsync = promisify(exec);
 
 function createId() {
@@ -96,30 +97,17 @@ function normalizeId(card: { id?: unknown }): string | null {
   return id ? id : null;
 }
 
-async function buildPortfolioCommitMessage(repoRoot: string): Promise<string> {
+async function buildPortfolioCommitMessage(
+  labRoot: string,
+  portfolioRoot: string
+): Promise<string> {
   const kanbanRel = "src/data/kanban.json";
-  const kanbanAbs = path.join(repoRoot, "src", "data", "kanban.json");
+  const kanbanAbs = path.join(portfolioRoot, "src", "data", "kanban.json");
 
-  const baseKanbanRaw = await readGitFile(repoRoot, "HEAD", kanbanRel);
+  const baseKanbanRaw = await readGitFile(portfolioRoot, "HEAD", kanbanRel);
   const baseKanban = safeParseJson(baseKanbanRaw);
   const currKanbanRaw = await fs.readFile(kanbanAbs, "utf8").catch(() => null);
   const currKanban = safeParseJson(currKanbanRaw);
-
-  if (!Array.isArray(baseKanban) || !Array.isArray(currKanban)) {
-    return "telemetry: sync";
-  }
-
-  const baseMap = new Map<string, any>();
-  for (const task of baseKanban) {
-    const id = normalizeId(task as { id?: unknown });
-    if (id) baseMap.set(id, task);
-  }
-
-  const currMap = new Map<string, any>();
-  for (const task of currKanban) {
-    const id = normalizeId(task as { id?: unknown });
-    if (id) currMap.set(id, task);
-  }
 
   const shortStatus = (status: unknown) =>
     String(status || "")
@@ -146,50 +134,100 @@ async function buildPortfolioCommitMessage(repoRoot: string): Promise<string> {
 
   const changeLines: string[] = [];
 
-  for (const [id, currTask] of currMap.entries()) {
-    const prevTask = baseMap.get(id);
-    if (!prevTask) {
-      changeLines.push(`+ ${cardSummary(currTask)}`);
-      continue;
+  // ---- Kanban diff (from portfolio repo) ----
+  if (Array.isArray(baseKanban) && Array.isArray(currKanban)) {
+    const baseMap = new Map<string, any>();
+    for (const task of baseKanban) {
+      const id = normalizeId(task as { id?: unknown });
+      if (id) baseMap.set(id, task);
     }
 
-    const prevStatus = String((prevTask as any)?.status ?? "").toLowerCase();
-    const currStatus = String((currTask as any)?.status ?? "").toLowerCase();
-    const prevUpdatedAt = String((prevTask as any)?.updatedAt ?? "");
-    const currUpdatedAt = String((currTask as any)?.updatedAt ?? "");
-    const prevTrack = String((prevTask as any)?.track ?? "").toLowerCase();
-    const currTrack = String((currTask as any)?.track ?? "").toLowerCase();
-    const prevTitle = String((prevTask as any)?.title ?? "").trim();
-    const currTitle = String((currTask as any)?.title ?? "").trim();
+    const currMap = new Map<string, any>();
+    for (const task of currKanban) {
+      const id = normalizeId(task as { id?: unknown });
+      if (id) currMap.set(id, task);
+    }
 
-    const changed =
-      prevStatus !== currStatus ||
-      prevUpdatedAt !== currUpdatedAt ||
-      prevTrack !== currTrack ||
-      prevTitle !== currTitle;
+    for (const [id, currTask] of currMap.entries()) {
+      const prevTask = baseMap.get(id);
+      if (!prevTask) {
+        changeLines.push(`+ ${cardSummary(currTask)}`);
+        continue;
+      }
 
-    if (changed) {
-      changeLines.push(`~ ${cardSummary(currTask)}`);
+      const prevStatus = String((prevTask as any)?.status ?? "").toLowerCase();
+      const currStatus = String((currTask as any)?.status ?? "").toLowerCase();
+      const prevUpdatedAt = String((prevTask as any)?.updatedAt ?? "");
+      const currUpdatedAt = String((currTask as any)?.updatedAt ?? "");
+      const prevTrack = String((prevTask as any)?.track ?? "").toLowerCase();
+      const currTrack = String((currTask as any)?.track ?? "").toLowerCase();
+      const prevTitle = String((prevTask as any)?.title ?? "").trim();
+      const currTitle = String((currTask as any)?.title ?? "").trim();
+
+      const changed =
+        prevStatus !== currStatus ||
+        prevUpdatedAt !== currUpdatedAt ||
+        prevTrack !== currTrack ||
+        prevTitle !== currTitle;
+
+      if (changed) {
+        changeLines.push(`~ ${cardSummary(currTask)}`);
+      }
+    }
+
+    for (const [id, prevTask] of baseMap.entries()) {
+      if (!currMap.has(id)) {
+        changeLines.push(`- ${shortTitle(prevTask?.title)} (removed)`);
+      }
     }
   }
 
-  for (const [id, prevTask] of baseMap.entries()) {
-    if (!currMap.has(id)) {
-      changeLines.push(`- ${shortTitle(prevTask?.title)} (removed)`);
+  // ---- Todo completions (from research-lab repo) ----
+  const todosRel = "data/todos.json";
+  const todosAbs = path.join(labRoot, "data", "todos.json");
+
+  const baseTodosRaw = await readGitFile(labRoot, "HEAD", todosRel);
+  const baseTodos = safeParseJson(baseTodosRaw);
+  const currTodosRaw = await fs.readFile(todosAbs, "utf8").catch(() => null);
+  const currTodos = safeParseJson(currTodosRaw);
+
+  if (Array.isArray(currTodos)) {
+    const baseTodoById = new Map<string, any>();
+    if (Array.isArray(baseTodos)) {
+      for (const t of baseTodos) {
+        const id = normalizeId(t as { id?: unknown });
+        if (id) baseTodoById.set(id, t);
+      }
+    }
+
+    for (const todo of currTodos) {
+      const id = normalizeId(todo as { id?: unknown });
+      const text = shortTitle((todo as any)?.text ?? (todo as any)?.title ?? "");
+      const currCompletedAt = (todo as any)?.completedAt ? String((todo as any).completedAt) : null;
+      if (!id) continue;
+      if (!currCompletedAt) continue;
+
+      const prevTodo = baseTodoById.get(id);
+      const prevCompletedAt =
+        prevTodo && (prevTodo as any)?.completedAt ? String((prevTodo as any).completedAt) : null;
+
+      // Only include tasks that are completed now and whose completion time changed
+      // since the last push (e.g., checked off for the first time or re-checked).
+      if (prevCompletedAt !== currCompletedAt) {
+        changeLines.push(`${text} (completed)`);
+      }
     }
   }
 
-  if (changeLines.length === 0) {
-    return "telemetry: sync";
-  }
+  if (changeLines.length === 0) return "No changes";
 
   // Keep messages short and readable.
-  const MAX_LINES = 6;
+  const MAX_LINES = 8;
   const shown = changeLines.slice(0, MAX_LINES);
   const remaining = changeLines.length - shown.length;
 
   const suffix = remaining > 0 ? `, +${remaining} more` : "";
-  return `telemetry: sync: ${shown.join(", ")}${suffix}`;
+  return `${shown.join(", ")}${suffix}`;
 }
 
 async function publishRepo(repoRoot: string, message: string) {
@@ -457,6 +495,71 @@ function researchLabPersistence() {
         return;
       }
 
+      if (req.method === "POST" && url.pathname === "/api/todos/add") {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const text = String(body.text || "").trim();
+
+          if (!text) {
+            sendJson(res, 400, { error: "Todo text is required." });
+            return;
+          }
+
+          const todos = await readJsonOrDefault(TODOS_PATH, []);
+          const normalized = Array.isArray(todos) ? todos : [];
+
+          const todo = {
+            id: createId(),
+            text,
+            completedAt: null,
+          };
+
+          normalized.push(todo);
+          await writeJson(TODOS_PATH, normalized);
+          sendJson(res, 200, { todo });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to add todo.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/todos/toggle") {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const todoId = String(body.id || "").trim();
+
+          if (!todoId) {
+            sendJson(res, 400, { error: "Todo id is required." });
+            return;
+          }
+
+          const todos = await readJsonOrDefault(TODOS_PATH, []);
+          const normalized = Array.isArray(todos) ? todos : [];
+
+          const idx = normalized.findIndex((t: { id?: string }) => t.id === todoId);
+          if (idx === -1) {
+            sendJson(res, 404, { error: "Todo not found." });
+            return;
+          }
+
+          const currentlyCompleted = Boolean(normalized[idx]?.completedAt);
+          normalized[idx] = {
+            ...normalized[idx],
+            completedAt: currentlyCompleted ? null : new Date().toISOString(),
+          };
+
+          await writeJson(TODOS_PATH, normalized);
+          sendJson(res, 200, { todo: normalized[idx] });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to toggle todo.",
+          });
+        }
+        return;
+      }
+
       if (req.method === "POST" && url.pathname === "/api/sync") {
         try {
           const result = await runCommand("node scripts/sync.js", LAB_ROOT);
@@ -475,9 +578,9 @@ function researchLabPersistence() {
 
       if (req.method === "POST" && url.pathname === "/api/publish") {
         try {
-          const researchLab = await publishRepo(LAB_ROOT, "research: log update");
-          const portfolioMessage = await buildPortfolioCommitMessage(PORTFOLIO_ROOT);
-          const portfolio = await publishRepo(PORTFOLIO_ROOT, portfolioMessage);
+          const publishMessage = await buildPortfolioCommitMessage(LAB_ROOT, PORTFOLIO_ROOT);
+          const researchLab = await publishRepo(LAB_ROOT, publishMessage);
+          const portfolio = await publishRepo(PORTFOLIO_ROOT, publishMessage);
 
           sendJson(res, 200, {
             ok: true,

@@ -39,51 +39,5 @@
         }
       }
     ]
-  },
-  {
-    "id": "1774269378068-fad45747636d3",
-    "title": "Download the NuScenes Dataset",
-    "track": "#Code",
-    "description": "",
-    "archived": false,
-    "archiveReason": null,
-    "links": {
-      "githubUrl": "",
-      "blogUrl": ""
-    },
-    "history": [
-      {
-        "status": "Concepts & Ideas",
-        "at": "2026-03-23T12:36:18.068Z",
-        "comment": "",
-        "metadata": {
-          "githubUrl": "",
-          "blogUrl": ""
-        }
-      }
-    ]
-  },
-  {
-    "id": "1774269764068-eb3c5f3e9ab05",
-    "title": "T.A.A.L - Text-to-Audio Acoustic Language",
-    "track": "#Code",
-    "description": "- Create Github Repo\n- Download Datasets\n- Do EDA",
-    "archived": false,
-    "archiveReason": null,
-    "links": {
-      "githubUrl": "",
-      "blogUrl": ""
-    },
-    "history": [
-      {
-        "status": "Concepts & Ideas",
-        "at": "2026-03-23T12:42:44.068Z",
-        "comment": "- Create Github Repo\n- Download Datasets\n- Do EDA",
-        "metadata": {
-          "githubUrl": "",
-          "blogUrl": ""
-        }
-      }
-    ]
   }
 ]

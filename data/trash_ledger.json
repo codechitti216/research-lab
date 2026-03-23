@@ -30,5 +30,21 @@
     "track": "#Code",
     "status": "Setup",
     "reason": "De-\nPrioritized"
+  },
+  {
+    "timestamp": "2026-03-23T13:02:24.998Z",
+    "cardId": "1774269764068-eb3c5f3e9ab05",
+    "title": "T.A.A.L - Text-to-Audio Acoustic Language",
+    "track": "#Code",
+    "status": "Concepts & Ideas",
+    "reason": "It is a To Do more than a concept."
+  },
+  {
+    "timestamp": "2026-03-23T13:02:34.213Z",
+    "cardId": "1774269378068-fad45747636d3",
+    "title": "Download the NuScenes Dataset",
+    "track": "#Code",
+    "status": "Concepts & Ideas",
+    "reason": "Same Reason."
   }
 ]

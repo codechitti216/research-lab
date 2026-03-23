@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import seedCards from "../data/db.json";
+import seedTodos from "../data/todos.json";
 
 const COLUMNS = [
   { title: "Concepts & Ideas", border: "border-sky-200" },
@@ -90,6 +91,18 @@ function normalizeCards(input) {
     : [];
 }
 
+function normalizeTodos(input) {
+  return Array.isArray(input)
+    ? input
+        .map((todo) => ({
+          id: String(todo?.id || "").trim(),
+          text: String(todo?.text || "").trim(),
+          completedAt: todo?.completedAt ? String(todo.completedAt) : null,
+        }))
+        .filter((todo) => todo.id && todo.text)
+    : [];
+}
+
 function getCurrentStatus(card) {
   return card.history?.[card.history.length - 1]?.status || card.status || INITIAL_STATUS;
 }
@@ -154,6 +167,7 @@ export function App() {
   const isDev = import.meta.env.DEV;
   const isInteractive = isDev;
   const [cards, setCards] = useState(() => normalizeCards(seedCards));
+  const [todos, setTodos] = useState(() => normalizeTodos(seedTodos));
   const [draftMove, setDraftMove] = useState(null);
   const [draftComment, setDraftComment] = useState("");
   const [newCardDraft, setNewCardDraft] = useState(null);
@@ -161,6 +175,9 @@ export function App() {
   const [isCreating, setIsCreating] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [todoDraft, setTodoDraft] = useState("");
+  const [isAddingTodo, setIsAddingTodo] = useState(false);
+  const [togglingTodoId, setTogglingTodoId] = useState(null);
   const [draggedCardId, setDraggedCardId] = useState(null);
   const [hoverStatus, setHoverStatus] = useState(null);
   const [hoverTrash, setHoverTrash] = useState(false);
@@ -179,7 +196,7 @@ export function App() {
     [cards]
   );
 
-  const todaysEvents = useMemo(
+  const todaysCardEvents = useMemo(
     () =>
       historyEvents
         .filter((event) => toDateKey(event.at) === todayKey)
@@ -187,11 +204,47 @@ export function App() {
     [historyEvents, todayKey]
   );
 
+  const todaysTodoEvents = useMemo(() => {
+    if (!isInteractive) return [];
+    return todos
+      .filter((todo) => todo.completedAt && toDateKey(todo.completedAt) === todayKey)
+      .map((todo) => ({
+        type: "todo",
+        at: todo.completedAt,
+        title: todo.text,
+        cardId: todo.id,
+        status: "todo",
+        fromStatus: null,
+        toStatus: null,
+        comment: "",
+      }))
+      .sort((a, b) => new Date(b.at) - new Date(a.at));
+  }, [isInteractive, todos, todayKey]);
+
+  const todaysEvents = useMemo(() => {
+    return [...todaysCardEvents, ...todaysTodoEvents].sort(
+      (a, b) => new Date(b.at) - new Date(a.at)
+    );
+  }, [todaysCardEvents, todaysTodoEvents]);
+
+  const todoCompletionEvents = useMemo(() => {
+    if (!isInteractive) return [];
+    return todos
+      .filter((todo) => todo.completedAt)
+      .map((todo) => ({
+        at: todo.completedAt,
+      }));
+  }, [isInteractive, todos]);
+
+  const activityEvents = useMemo(() => {
+    return [...historyEvents, ...todoCompletionEvents];
+  }, [historyEvents, todoCompletionEvents]);
+
   const activityHeatmap = useMemo(() => {
     const end = startOfWeek(new Date());
     const dayCounts = new Map();
 
-    for (const event of historyEvents) {
+    for (const event of activityEvents) {
       const key = toDateKey(event.at);
       if (!key) continue;
       dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
@@ -218,10 +271,21 @@ export function App() {
     }
 
     return weeks;
-  }, [historyEvents]);
+  }, [activityEvents]);
+
+  const sortedTodos = useMemo(() => {
+    const list = [...todos];
+    list.sort((a, b) => {
+      const aDone = Boolean(a.completedAt);
+      const bDone = Boolean(b.completedAt);
+      if (aDone !== bDone) return aDone ? 1 : -1;
+      return a.text.localeCompare(b.text);
+    });
+    return list;
+  }, [todos]);
 
   const activitySummary = useMemo(() => {
-    const uniqueDays = new Set(historyEvents.map((event) => toDateKey(event.at)).filter(Boolean));
+    const uniqueDays = new Set(activityEvents.map((event) => toDateKey(event.at)).filter(Boolean));
     const currentStreakBase = [...uniqueDays].sort().reverse();
     let streak = 0;
     let cursor = new Date();
@@ -238,11 +302,11 @@ export function App() {
     }
 
     return {
-      totalEvents: historyEvents.length,
+      totalEvents: activityEvents.length,
       activeDays: uniqueDays.size,
       currentStreak: streak,
     };
-  }, [historyEvents]);
+  }, [activityEvents]);
 
   const grouped = useMemo(() => {
     const byStatus = Object.fromEntries(STATUSES.map((status) => [status, []]));
@@ -514,6 +578,47 @@ export function App() {
       setCards((prev) => prev.map((entry) => (entry.id === id ? card : entry)));
     } catch (requestError) {
       setError(requestError.message);
+    }
+  };
+
+  const handleAddTodo = async () => {
+    if (!isInteractive) return;
+    const text = todoDraft.trim();
+    if (!text) {
+      setError("Todo text is required.");
+      return;
+    }
+
+    try {
+      setIsAddingTodo(true);
+      setError("");
+      const { todo } = await requestJson("/api/todos/add", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      });
+      setTodos((prev) => [...prev, todo]);
+      setTodoDraft("");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsAddingTodo(false);
+    }
+  };
+
+  const handleToggleTodo = async (id) => {
+    if (!isInteractive) return;
+    try {
+      setTogglingTodoId(id);
+      setError("");
+      const { todo } = await requestJson("/api/todos/toggle", {
+        method: "POST",
+        body: JSON.stringify({ id }),
+      });
+      setTodos((prev) => prev.map((t) => (t.id === todo.id ? todo : t)));
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setTogglingTodoId(null);
     }
   };
 
@@ -888,7 +993,11 @@ export function App() {
                     </div>
                     <div className="mt-1 font-serif text-lg text-neutral-900">{event.title}</div>
                     <p className="mt-1 text-sm text-neutral-600">
-                      {event.type === "created" ? (
+                      {event.type === "todo" ? (
+                        <>
+                          Completed todo in <span className="font-medium">{event.status}</span>
+                        </>
+                      ) : event.type === "created" ? (
                         <>
                           Started in <span className="font-medium">{event.status}</span>
                         </>
@@ -965,6 +1074,67 @@ export function App() {
                 <span>More</span>
               </div>
             </div>
+
+            {isInteractive ? (
+              <div className="mt-8 border-t border-neutral-200 pt-6">
+                <div className="mb-4 flex items-baseline justify-between gap-4">
+                  <h3 className="font-serif text-xl font-medium text-neutral-900">Todo</h3>
+                  <div className="text-xs uppercase tracking-[0.18em] text-neutral-400">
+                    {todos.filter((t) => t.completedAt).length} done
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={todoDraft}
+                    onChange={(event) => setTodoDraft(event.target.value)}
+                    placeholder="Add a task to track..."
+                    className="w-full border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-neutral-400"
+                  />
+                  <button
+                    type="button"
+                    disabled={isAddingTodo || !todoDraft.trim()}
+                    onClick={handleAddTodo}
+                    className="rounded-sm bg-neutral-900 px-3 py-1.5 text-sm text-white transition duration-fast hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isAddingTodo ? "Adding..." : "Add"}
+                  </button>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  {sortedTodos.length ? (
+                    sortedTodos.map((todo) => {
+                      const done = Boolean(todo.completedAt);
+                      const isBusy = togglingTodoId === todo.id;
+                      return (
+                        <label
+                          key={todo.id}
+                          className={`flex cursor-pointer items-start gap-3 rounded border px-3 py-2 text-sm transition ${
+                            done
+                              ? "border-neutral-200 bg-neutral-50"
+                              : "border-neutral-200 bg-white hover:bg-neutral-50"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={done}
+                            disabled={isBusy}
+                            onChange={() => handleToggleTodo(todo.id)}
+                            className="mt-1"
+                          />
+                          <span className={done ? "flex-1 line-through text-neutral-500" : "flex-1 text-neutral-800"}>
+                            {todo.text}
+                          </span>
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <p className="text-sm italic text-neutral-500">No todos yet.</p>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </article>
         </section>
 

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "1774270774381-784e77c1e718d",
+    "text": "Write notes about the mathematical features of a Gaussian and write a mini blog about it.",
+    "completedAt": null
+  },
+  {
+    "id": "1774270912931-915ab8cb29b51",
+    "text": "Download the NuScenes Dataset",
+    "completedAt": "2026-03-23T15:49:06.321Z"
+  },
+  {
+    "id": "1774271022227-5f6a136cfd519",
+    "text": "T.A.A.L - Download All Datasets and do EDA, Write a mini blog about the summary of datasets, My approach and SOTA algorithms.",
+    "completedAt": "2026-03-23T17:03:01.806Z"
+  }
+]
