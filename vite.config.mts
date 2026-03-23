@@ -65,6 +65,133 @@ function quotePath(filePath: string) {
   return `"${filePath.replace(/"/g, '\\"')}"`;
 }
 
+async function readGitFile(
+  repoRoot: string,
+  rev: string,
+  fileRelPath: string
+): Promise<string | null> {
+  try {
+    const result = await execAsync(`git show ${rev}:${fileRelPath}`, {
+      cwd: repoRoot,
+      windowsHide: true,
+    });
+    return result.stdout ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function safeParseJson(value: string | null): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeId(card: { id?: unknown }): string | null {
+  if (!card || card.id === undefined || card.id === null) return null;
+  const id = String(card.id).trim();
+  return id ? id : null;
+}
+
+async function buildPortfolioCommitMessage(repoRoot: string): Promise<string> {
+  const kanbanRel = "src/data/kanban.json";
+  const kanbanAbs = path.join(repoRoot, "src", "data", "kanban.json");
+
+  const baseKanbanRaw = await readGitFile(repoRoot, "HEAD", kanbanRel);
+  const baseKanban = safeParseJson(baseKanbanRaw);
+  const currKanbanRaw = await fs.readFile(kanbanAbs, "utf8").catch(() => null);
+  const currKanban = safeParseJson(currKanbanRaw);
+
+  if (!Array.isArray(baseKanban) || !Array.isArray(currKanban)) {
+    return "telemetry: sync";
+  }
+
+  const baseMap = new Map<string, any>();
+  for (const task of baseKanban) {
+    const id = normalizeId(task as { id?: unknown });
+    if (id) baseMap.set(id, task);
+  }
+
+  const currMap = new Map<string, any>();
+  for (const task of currKanban) {
+    const id = normalizeId(task as { id?: unknown });
+    if (id) currMap.set(id, task);
+  }
+
+  const shortStatus = (status: unknown) =>
+    String(status || "")
+      .trim()
+      .replace(/[-_]/g, " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+
+  const shortTrack = (track: unknown) => {
+    const t = String(track || "").trim();
+    return t ? t : "Track?";
+  };
+
+  const shortTitle = (title: unknown) => {
+    const t = String(title || "").trim();
+    return t ? t : "Untitled";
+  };
+
+  const cardSummary = (task: any) => {
+    const title = shortTitle(task?.title);
+    const status = shortStatus(task?.status);
+    const track = shortTrack(task?.track);
+    return `${title} (${status || "?"}, ${track})`;
+  };
+
+  const changeLines: string[] = [];
+
+  for (const [id, currTask] of currMap.entries()) {
+    const prevTask = baseMap.get(id);
+    if (!prevTask) {
+      changeLines.push(`+ ${cardSummary(currTask)}`);
+      continue;
+    }
+
+    const prevStatus = String((prevTask as any)?.status ?? "").toLowerCase();
+    const currStatus = String((currTask as any)?.status ?? "").toLowerCase();
+    const prevUpdatedAt = String((prevTask as any)?.updatedAt ?? "");
+    const currUpdatedAt = String((currTask as any)?.updatedAt ?? "");
+    const prevTrack = String((prevTask as any)?.track ?? "").toLowerCase();
+    const currTrack = String((currTask as any)?.track ?? "").toLowerCase();
+    const prevTitle = String((prevTask as any)?.title ?? "").trim();
+    const currTitle = String((currTask as any)?.title ?? "").trim();
+
+    const changed =
+      prevStatus !== currStatus ||
+      prevUpdatedAt !== currUpdatedAt ||
+      prevTrack !== currTrack ||
+      prevTitle !== currTitle;
+
+    if (changed) {
+      changeLines.push(`~ ${cardSummary(currTask)}`);
+    }
+  }
+
+  for (const [id, prevTask] of baseMap.entries()) {
+    if (!currMap.has(id)) {
+      changeLines.push(`- ${shortTitle(prevTask?.title)} (removed)`);
+    }
+  }
+
+  if (changeLines.length === 0) {
+    return "telemetry: sync";
+  }
+
+  // Keep messages short and readable.
+  const MAX_LINES = 6;
+  const shown = changeLines.slice(0, MAX_LINES);
+  const remaining = changeLines.length - shown.length;
+
+  const suffix = remaining > 0 ? `, +${remaining} more` : "";
+  return `telemetry: sync: ${shown.join(", ")}${suffix}`;
+}
+
 async function publishRepo(repoRoot: string, message: string) {
   const command = `cd /d ${quotePath(repoRoot)} && git add . && (git diff --cached --quiet || git commit -m "${message.replace(/"/g, '\\"')}") && git push`;
   return execAsync(command, {
@@ -349,7 +476,8 @@ function researchLabPersistence() {
       if (req.method === "POST" && url.pathname === "/api/publish") {
         try {
           const researchLab = await publishRepo(LAB_ROOT, "research: log update");
-          const portfolio = await publishRepo(PORTFOLIO_ROOT, "telemetry: sync");
+          const portfolioMessage = await buildPortfolioCommitMessage(PORTFOLIO_ROOT);
+          const portfolio = await publishRepo(PORTFOLIO_ROOT, portfolioMessage);
 
           sendJson(res, 200, {
             ok: true,
