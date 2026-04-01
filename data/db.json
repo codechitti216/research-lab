@@ -34,41 +34,41 @@
                 "id": "1775071572889-737f21b1f1d96",
                 "text": "Read about the Preliminary Problem statement of relative pose estimation and Stereo Calibration using Structure From Motion Concepts",
                 "completed": true,
-                "completedAt": "2026-04-01T19:27:31.696Z",
+                "completedAt": "2026-04-01T19:33:25.151Z",
                 "subtasks": [
                   {
                     "id": "1775071588025-24483279166f8",
                     "text": "Key point detection, description and matching algorithms",
                     "completed": true,
-                    "completedAt": "2026-04-01T19:27:31.696Z",
+                    "completedAt": "2026-04-01T19:33:25.151Z",
                     "subtasks": []
                   },
                   {
                     "id": "1775071602768-aad833fbde174",
                     "text": "Inverse Ray Projection",
                     "completed": true,
-                    "completedAt": "2026-04-01T19:27:31.696Z",
+                    "completedAt": "2026-04-01T19:33:25.151Z",
                     "subtasks": []
                   },
                   {
                     "id": "1775071617560-f85604ed8c841",
                     "text": "8-point algorithm",
                     "completed": true,
-                    "completedAt": "2026-04-01T19:27:31.696Z",
+                    "completedAt": "2026-04-01T19:33:25.151Z",
                     "subtasks": []
                   },
                   {
                     "id": "1775071632056-14c54c8c96a5c",
                     "text": "RANSAC, Inliers and Outliers",
                     "completed": true,
-                    "completedAt": "2026-04-01T19:27:31.696Z",
+                    "completedAt": "2026-04-01T19:33:25.151Z",
                     "subtasks": []
                   },
                   {
                     "id": "1775071646472-f30b4c3f30e42",
                     "text": "Epipolar Constraint",
                     "completed": true,
-                    "completedAt": "2026-04-01T19:27:31.696Z",
+                    "completedAt": "2026-04-01T19:33:25.151Z",
                     "subtasks": []
                   }
                 ]
