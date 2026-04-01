@@ -14,9 +14,9 @@ The Kanban board of my personal research and exploration.
   - `description`: free-form Daily Delta / notes
 
 ## Sync bridge
-- `npm run sync` reads `data/db.json`, computes sideways-movement streaks, and writes a clean `kanban.json` into the portfolio repo (`codechitti216.github.io/src/data/kanban.json`).
-- The portfolio only reads `status`, `track`, and `updatedAt`:
-  - `status` is always lower-case (`hypothesis`, `sandboxing`, `resolved`)
-  - `track` is `Math` or `Code`, derived from `#Math`/`#Code`
-  - `updatedAt` comes from the latest movement / Daily Delta
-
+- `npm run sync` reads `data/db.json` and `data/ledger.json`, then writes a small portfolio snapshot into `codechitti216.github.io/src/data/labSnapshot.json`.
+- The portfolio only uses:
+  - `latestActivity`: the most recent task-completion event from the ledger
+  - `openResearchLedgerUrl`: the public read-only ledger page
+  - `githubUrl`: the lab repository link
+  - `syncedAt`: the time the portfolio mirror was refreshed

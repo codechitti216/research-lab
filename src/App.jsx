@@ -1,21 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import seedCards from "../data/db.json";
-import seedTodos from "../data/todos.json";
+import seedLedger from "../data/ledger.json";
 
-const COLUMNS = [
-  { title: "Concepts & Ideas", border: "border-sky-200" },
-  { title: "Setup", border: "border-purple-200" },
-  { title: "Sandboxing", border: "border-amber-200" },
-  { title: "Results", border: "border-emerald-200" },
-  { title: "Artifacts", border: "border-slate-200" },
-  { title: "Broadcast", border: "border-indigo-200" },
-];
-const STATUSES = COLUMNS.map((column) => column.title);
-const INITIAL_STATUS = STATUSES[0];
-const FINAL_STATUS = STATUSES[STATUSES.length - 1];
 const TRACK_TAGS = ["#Math", "#Code"];
 const BUILD_STAMP = __BUILD_STAMP__;
 const HEATMAP_WEEKS = 16;
+const PUBLIC_LEDGER_LIMIT = 24;
+const RESEARCH_LAB_REPO_URL = "https://github.com/codechitti216/research-lab";
 
 function toDateKey(value) {
   const date = new Date(value);
@@ -41,6 +32,17 @@ function formatTime(value) {
   });
 }
 
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function startOfWeek(date) {
   const result = new Date(date);
   const day = result.getDay();
@@ -53,7 +55,6 @@ function startOfWeek(date) {
 function flattenHistory(cards) {
   return cards.flatMap((card) => {
     const history = Array.isArray(card.history) ? card.history : [];
-
     return history.map((entry, index) => ({
       cardId: card.id,
       title: card.title,
@@ -76,74 +77,40 @@ function getIntensityClass(count) {
   return "bg-neutral-100";
 }
 
+function migrateCardShape(card) {
+  const next = {
+    ...card,
+    links: {
+      githubUrl: card.links?.githubUrl || "",
+      blogUrl: card.links?.blogUrl || "",
+    },
+    subtasks: Array.isArray(card.subtasks) ? card.subtasks : [],
+  };
+  delete next.archived;
+  delete next.archivedAt;
+  delete next.archiveReason;
+
+  if (
+    next.subtasks.length === 0 &&
+    Array.isArray(card.history) &&
+    card.history.length > 0
+  ) {
+    next.subtasks = [
+      {
+        id: `legacy-${card.id}`,
+        text: card.title || "Imported task",
+        completed: false,
+        completedAt: null,
+        subtasks: [],
+      },
+    ];
+  }
+  return next;
+}
+
 function normalizeCards(input) {
-  return Array.isArray(input)
-    ? input.map((card) => ({
-        ...card,
-        archived: Boolean(card.archived),
-        archiveReason: card.archiveReason || null,
-        links: {
-          githubUrl: card.links?.githubUrl || "",
-          blogUrl: card.links?.blogUrl || "",
-        },
-        history: Array.isArray(card.history) ? card.history : [],
-      }))
-    : [];
-}
-
-function normalizeTodos(input) {
-  return Array.isArray(input)
-    ? input
-        .map((todo) => ({
-          id: String(todo?.id || "").trim(),
-          text: String(todo?.text || "").trim(),
-          completedAt: todo?.completedAt ? String(todo.completedAt) : null,
-        }))
-        .filter((todo) => todo.id && todo.text)
-    : [];
-}
-
-function getCurrentStatus(card) {
-  return card.history?.[card.history.length - 1]?.status || card.status || INITIAL_STATUS;
-}
-
-function LinkGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11 4" />
-      <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07L13 19" />
-    </svg>
-  );
-}
-
-function GitHubGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
-      <path d="M12 2C6.48 2 2 6.58 2 12.23c0 4.5 2.87 8.32 6.84 9.66.5.1.66-.22.66-.49v-1.72c-2.78.62-3.37-1.37-3.37-1.37-.46-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.35 1.12 2.92.86.09-.67.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.09 0-1.13.39-2.05 1.03-2.77-.1-.26-.45-1.31.1-2.73 0 0 .84-.28 2.75 1.06A9.3 9.3 0 0 1 12 6.84c.85 0 1.7.12 2.5.35 1.9-1.34 2.74-1.06 2.74-1.06.56 1.42.21 2.47.1 2.73.64.72 1.03 1.64 1.03 2.77 0 3.96-2.34 4.82-4.58 5.08.36.32.69.95.69 1.92v2.85c0 .28.17.6.68.49A10.25 10.25 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z" />
-    </svg>
-  );
-}
-
-function ArchiveGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <path d="M5 8h14v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2Z" />
-      <path d="M10 12h4" />
-    </svg>
-  );
-}
-
-function TrashGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M3 6h18" />
-      <path d="M8 6V4h8v2" />
-      <path d="M19 6l-1 14H6L5 6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-    </svg>
-  );
+  if (!Array.isArray(input)) return [];
+  return input.filter((c) => !c.archived).map(migrateCardShape);
 }
 
 async function requestJson(url, options) {
@@ -163,38 +130,415 @@ async function requestJson(url, options) {
   return payload;
 }
 
+function collectSubtaskCompletionEvents(subtasks, acc) {
+  if (!Array.isArray(subtasks)) return;
+  for (const n of subtasks) {
+    if (n.completedAt) acc.push({ at: n.completedAt });
+    collectSubtaskCompletionEvents(n.subtasks, acc);
+  }
+}
+
+function formatIndexPath(indexPath) {
+  return indexPath.map((i) => i + 1).join(".");
+}
+
+function formatLedgerDetail(entry) {
+  switch (entry.eventKind) {
+    case "parent_complete":
+      return "Topic milestone completed";
+    case "leaf_complete":
+      return "Sub-task completed";
+    case "parent_reopen":
+      return "Topic milestone reopened";
+    case "leaf_reopen":
+      return "Sub-task reopened";
+    default:
+      if (entry.fromStatus && entry.toStatus) {
+        return `Moved from ${entry.fromStatus} to ${entry.toStatus}`;
+      }
+      return "Research update";
+  }
+}
+
+function isTaskToggleLedgerEntry(entry) {
+  if (typeof entry.eventKind === "string" && /_(complete|reopen)$/.test(entry.eventKind)) {
+    return true;
+  }
+
+  const fromStatus = String(entry.fromStatus || "").trim().toLowerCase();
+  const toStatus = String(entry.toStatus || "").trim().toLowerCase();
+  return (
+    (fromStatus === "open" || fromStatus === "checked") &&
+    (toStatus === "open" || toStatus === "checked")
+  );
+}
+
+function getLedgerSubjectKey(entry) {
+  if (entry.subjectId) {
+    return `${entry.cardId || "unknown-card"}:${entry.subjectId}`;
+  }
+
+  const normalizedTitle = String(entry.title || entry.topicTitle || "")
+    .trim()
+    .replace(/\s+(completed|reopened)(\s*\(|\s*$)/i, "$2");
+
+  return normalizedTitle ? `${entry.cardId || "unknown-card"}:${normalizedTitle}` : null;
+}
+
+function toLedgerViewEvent(entry) {
+  const topicTitle = String(entry.topicTitle || "").trim();
+  const clickedSubjectLabel = String(entry.clickedSubjectLabel || "").trim();
+  const displayTitle =
+    topicTitle && clickedSubjectLabel
+      ? `${topicTitle}: [${clickedSubjectLabel}]`
+      : entry.title || entry.topicTitle || "Untitled event";
+
+  return {
+    type: "ledger",
+    at: entry.timestamp || entry.at,
+    title: displayTitle,
+    cardId: entry.cardId || "unknown-card",
+    detail: formatLedgerDetail(entry),
+    comment: entry.comment || "",
+  };
+}
+
+function InlineAddForm({
+  draft,
+  setDraft,
+  onSubmit,
+  onCancel,
+  disabled,
+  placeholder = "Title…",
+}) {
+  return (
+    <div className="mt-2 rounded-md border border-neutral-200 bg-neutral-50/80 px-3 py-2.5">
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (!disabled && draft.trim()) onSubmit();
+          }
+          if (e.key === "Escape") onCancel();
+        }}
+        placeholder={placeholder}
+        className="mb-2 w-full border-0 border-b border-neutral-300 bg-transparent py-1 text-sm text-neutral-900 outline-none focus:border-neutral-500"
+        autoFocus
+      />
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded border border-transparent px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-200/60"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={disabled || !draft.trim()}
+          onClick={onSubmit}
+          className="rounded bg-neutral-900 px-3 py-1 text-xs font-medium text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SubtaskItem({
+  topicId,
+  node,
+  indexPath,
+  togglingId,
+  onToggle,
+  onOpenAddInline,
+  onDeleteSubtaskRequest,
+  interactive,
+  addSlot,
+  addDraft,
+  setAddDraft,
+  onSubmitAddDraft,
+  onCancelAddDraft,
+  isSubmittingAdd,
+}) {
+  const numberLabel = formatIndexPath(indexPath);
+  const done = Boolean(node.completed);
+  const busy = togglingId === node.id;
+  const hasChildren = Array.isArray(node.subtasks) && node.subtasks.length > 0;
+  const addingHere =
+    Boolean(addSlot) &&
+    addSlot.topicId === topicId &&
+    addSlot.parentSubtaskId === node.id;
+
+  return (
+    <li className="space-y-1">
+      <div
+        className={`flex flex-wrap items-start gap-2 rounded border px-2 py-1.5 text-sm ${
+          done ? "border-neutral-200 bg-neutral-50" : "border-neutral-200 bg-white"
+        }`}
+      >
+        <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
+          <input
+            type="checkbox"
+            checked={done}
+            disabled={!interactive || busy}
+            onChange={() => onToggle(topicId, node.id)}
+            className="mt-1 shrink-0"
+          />
+          <span className={`min-w-0 ${done ? "text-neutral-500 line-through" : "text-neutral-800"}`}>
+            <span className="mr-2 inline-block min-w-[2rem] font-mono text-xs text-neutral-400">
+              {numberLabel}
+            </span>
+            {node.text}
+          </span>
+        </label>
+        {interactive ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={done || addingHere}
+              className="rounded px-1.5 py-0.5 text-xs text-neutral-600 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => onOpenAddInline(topicId, node.id)}
+            >
+              + Sub-task
+            </button>
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-xs text-neutral-500 hover:bg-red-50 hover:text-red-800"
+              onClick={() => onDeleteSubtaskRequest(topicId, node.id, node.text)}
+            >
+              Remove
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {addingHere ? (
+        <InlineAddForm
+          draft={addDraft}
+          setDraft={setAddDraft}
+          onSubmit={onSubmitAddDraft}
+          onCancel={onCancelAddDraft}
+          disabled={isSubmittingAdd}
+          placeholder="New sub-task…"
+        />
+      ) : null}
+      {hasChildren ? (
+        <ul className="mt-1 ml-2 space-y-1 border-l border-neutral-200 pl-3 sm:ml-3 sm:pl-4">
+          {node.subtasks.map((child, i) => (
+            <SubtaskItem
+              key={child.id}
+              topicId={topicId}
+              node={child}
+              indexPath={[...indexPath, i]}
+              togglingId={togglingId}
+              onToggle={onToggle}
+              onOpenAddInline={onOpenAddInline}
+              onDeleteSubtaskRequest={onDeleteSubtaskRequest}
+              interactive={interactive}
+              addSlot={addSlot}
+              addDraft={addDraft}
+              setAddDraft={setAddDraft}
+              onSubmitAddDraft={onSubmitAddDraft}
+              onCancelAddDraft={onCancelAddDraft}
+              isSubmittingAdd={isSubmittingAdd}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
+function GitHubGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
+      <path d="M12 2C6.48 2 2 6.58 2 12.23c0 4.5 2.87 8.32 6.84 9.66.5.1.66-.22.66-.49v-1.72c-2.78.62-3.37-1.37-3.37-1.37-.46-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.35 1.12 2.92.86.09-.67.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.09 0-1.13.39-2.05 1.03-2.77-.1-.26-.45-1.31.1-2.73 0 0 .84-.28 2.75 1.06A9.3 9.3 0 0 1 12 6.84c.85 0 1.7.12 2.5.35 1.9-1.34 2.74-1.06 2.74-1.06.56 1.42.21 2.47.1 2.73.64.72 1.03 1.64 1.03 2.77 0 3.96-2.34 4.82-4.58 5.08.36.32.69.95.69 1.92v2.85c0 .28.17.6.68.49A10.25 10.25 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z" />
+    </svg>
+  );
+}
+
+function PublicLedgerView({ events }) {
+  return (
+    <div className="min-h-screen bg-neutral-50 px-6 py-8 md:px-10">
+      <div className="mx-auto max-w-5xl space-y-8">
+        <header className="flex flex-col gap-4 border border-neutral-200 bg-white px-5 py-5 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="text-xs uppercase tracking-[0.18em] text-neutral-400">Research Lab</div>
+            <h1 className="mt-2 font-serif text-3xl font-medium text-neutral-900">
+              Open Research Ledger
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-600">
+              Public read-only view of the latest persisted task completions and reopenings from the
+              local research lab.
+            </p>
+          </div>
+          <div className="text-[11px] text-neutral-400">Public build: {BUILD_STAMP}</div>
+        </header>
+
+        <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
+          <aside className="border border-neutral-200 bg-white p-6">
+            <div className="text-xs uppercase tracking-[0.18em] text-neutral-400">GitHub</div>
+            <h2 className="mt-2 font-serif text-2xl font-medium text-neutral-900">research-lab</h2>
+            <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+              Source for the local task system, sync bridge, and the public ledger feed.
+            </p>
+            <a
+              href={RESEARCH_LAB_REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-5 inline-flex items-center gap-2 rounded border border-neutral-900 px-3 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-100"
+            >
+              <GitHubGlyph />
+              View Repository
+            </a>
+          </aside>
+
+          <section className="border border-neutral-200 bg-white p-6">
+            <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-baseline md:justify-between">
+              <div>
+                <h2 className="font-serif text-2xl font-medium text-neutral-900">Research Ledger</h2>
+                <p className="mt-2 text-sm leading-relaxed text-neutral-600">
+                  Latest task toggles mirrored from the local lab. This public page stays read-only.
+                </p>
+              </div>
+              <div className="text-xs uppercase tracking-[0.18em] text-neutral-400">
+                {events.length} events
+              </div>
+            </div>
+
+            {events.length ? (
+              <div className="space-y-5">
+                {events.map((event, idx) => (
+                  <div
+                    key={`${event.cardId}-${event.at}-${event.type}-${idx}`}
+                    className="border-l-2 border-emerald-500 pl-4"
+                  >
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-neutral-400">
+                      {formatDateTime(event.at)}
+                    </div>
+                    <div className="mt-1 font-serif text-lg text-neutral-900">{event.title}</div>
+                    <p className="mt-1 text-sm text-neutral-600">
+                      <span className="font-medium">{event.detail}</span>
+                    </p>
+                    {event.comment ? (
+                      <p className="mt-2 whitespace-pre-wrap font-mono text-sm leading-relaxed text-neutral-700">
+                        {event.comment}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-neutral-500">No public ledger events available yet.</p>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const isDev = import.meta.env.DEV;
-  const isInteractive = isDev;
+  const isLocalPreviewHost =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const [hasLocalApi, setHasLocalApi] = useState(() => isDev);
+  /** `vite dev`, or a local production host that still exposes the API middleware. */
+  const isInteractive = isDev || (import.meta.env.PROD && isLocalPreviewHost && hasLocalApi);
   const [cards, setCards] = useState(() => normalizeCards(seedCards));
-  const [todos, setTodos] = useState(() => normalizeTodos(seedTodos));
-  const [draftMove, setDraftMove] = useState(null);
-  const [draftComment, setDraftComment] = useState("");
-  const [newCardDraft, setNewCardDraft] = useState(null);
-  const [isCommitting, setIsCommitting] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
+  const [topicTitle, setTopicTitle] = useState("");
+  const [tasksText, setTasksText] = useState("");
+  const [topicTrack, setTopicTrack] = useState("#Code");
+  const [isCreatingTopic, setIsCreatingTopic] = useState(false);
+  const [togglingSubId, setTogglingSubId] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
-  const [todoDraft, setTodoDraft] = useState("");
-  const [isAddingTodo, setIsAddingTodo] = useState(false);
-  const [togglingTodoId, setTogglingTodoId] = useState(null);
-  const [draggedCardId, setDraggedCardId] = useState(null);
-  const [hoverStatus, setHoverStatus] = useState(null);
-  const [hoverTrash, setHoverTrash] = useState(false);
-  const [showArchiveOverlay, setShowArchiveOverlay] = useState(false);
-  const [trashDraft, setTrashDraft] = useState(null);
   const [error, setError] = useState("");
   const [commandMessage, setCommandMessage] = useState("");
+  const [ledgerEntries, setLedgerEntries] = useState(() =>
+    Array.isArray(seedLedger) ? seedLedger : []
+  );
+  /** Inline add: parentSubtaskId null = top-level under topic */
+  const [addSlot, setAddSlot] = useState(null);
+  const [addDraft, setAddDraft] = useState("");
+  const [isSubmittingAdd, setIsSubmittingAdd] = useState(false);
+  /** { kind: 'subtask' | 'topic', topicId, subtaskId?, label } */
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const deleteConfirmRef = useRef(deleteConfirm);
+  deleteConfirmRef.current = deleteConfirm;
+
+  useEffect(() => {
+    if (isDev || !isLocalPreviewHost) return;
+
+    let cancelled = false;
+
+    fetch("/api/health")
+      .then((response) => {
+        if (!cancelled) {
+          setHasLocalApi(response.ok);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHasLocalApi(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isDev, isLocalPreviewHost]);
+
+  useEffect(() => {
+    if (!isInteractive) return;
+
+    let cancelled = false;
+
+    requestJson("/api/cards")
+      .then((payload) => {
+        if (!cancelled && Array.isArray(payload.cards)) {
+          setCards(normalizeCards(payload.cards));
+        }
+      })
+      .catch(() => {
+        // Keep the bundled seed as a fallback if the live API read fails.
+      });
+
+    requestJson("/api/ledger")
+      .then((payload) => {
+        if (!cancelled && Array.isArray(payload.ledger)) {
+          setLedgerEntries(payload.ledger);
+        }
+      })
+      .catch(() => {
+        // Keep the in-memory ledger empty if the live API read fails.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isInteractive]);
+
+  useEffect(() => {
+    if (!deleteConfirm || typeof window === "undefined") return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setDeleteConfirm(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deleteConfirm]);
+
   const historyEvents = useMemo(() => flattenHistory(cards), [cards]);
   const todayKey = toDateKey(new Date());
-  const activeCards = useMemo(() => cards.filter((card) => !card.archived), [cards]);
-  const archivedCards = useMemo(
-    () =>
-      cards
-        .filter((card) => card.archived)
-        .sort((a, b) => new Date((b.archivedAt || 0)) - new Date((a.archivedAt || 0))),
-    [cards]
-  );
 
   const todaysCardEvents = useMemo(
     () =>
@@ -204,41 +548,60 @@ export function App() {
     [historyEvents, todayKey]
   );
 
-  const todaysTodoEvents = useMemo(() => {
-    if (!isInteractive) return [];
-    return todos
-      .filter((todo) => todo.completedAt && toDateKey(todo.completedAt) === todayKey)
-      .map((todo) => ({
-        type: "todo",
-        at: todo.completedAt,
-        title: todo.text,
-        cardId: todo.id,
-        status: "todo",
-        fromStatus: null,
-        toStatus: null,
-        comment: "",
-      }))
-      .sort((a, b) => new Date(b.at) - new Date(a.at));
-  }, [isInteractive, todos, todayKey]);
+  const todaysLedgerEvents = useMemo(() => {
+    const todaysEntries = ledgerEntries
+      .filter((e) => toDateKey(e.timestamp || e.at) === todayKey)
+      .sort((a, b) => new Date(a.timestamp || a.at) - new Date(b.timestamp || b.at));
+
+    const latestTaskState = new Map();
+    const visibleEntries = [];
+
+    for (const entry of todaysEntries) {
+      if (isTaskToggleLedgerEntry(entry)) {
+        const key = getLedgerSubjectKey(entry);
+        if (key) {
+          latestTaskState.set(key, entry);
+          continue;
+        }
+      }
+
+      visibleEntries.push(toLedgerViewEvent(entry));
+    }
+
+    for (const entry of latestTaskState.values()) {
+      if (String(entry.eventKind).endsWith("_complete")) {
+        visibleEntries.push(toLedgerViewEvent(entry));
+      }
+    }
+
+    return visibleEntries.sort((a, b) => new Date(b.at) - new Date(a.at));
+  }, [ledgerEntries, todayKey]);
 
   const todaysEvents = useMemo(() => {
-    return [...todaysCardEvents, ...todaysTodoEvents].sort(
+    return [...todaysCardEvents, ...todaysLedgerEvents].sort(
       (a, b) => new Date(b.at) - new Date(a.at)
     );
-  }, [todaysCardEvents, todaysTodoEvents]);
+  }, [todaysCardEvents, todaysLedgerEvents]);
 
-  const todoCompletionEvents = useMemo(() => {
-    if (!isInteractive) return [];
-    return todos
-      .filter((todo) => todo.completedAt)
-      .map((todo) => ({
-        at: todo.completedAt,
-      }));
-  }, [isInteractive, todos]);
+  const publicLedgerEvents = useMemo(() => {
+    return ledgerEntries
+      .filter(isTaskToggleLedgerEntry)
+      .sort((a, b) => new Date(b.timestamp || b.at) - new Date(a.timestamp || a.at))
+      .slice(0, PUBLIC_LEDGER_LIMIT)
+      .map((entry) => toLedgerViewEvent(entry));
+  }, [ledgerEntries]);
+
+  const subtaskCompletionTimes = useMemo(() => {
+    const acc = [];
+    for (const card of cards) {
+      collectSubtaskCompletionEvents(card.subtasks, acc);
+    }
+    return acc;
+  }, [cards]);
 
   const activityEvents = useMemo(() => {
-    return [...historyEvents, ...todoCompletionEvents];
-  }, [historyEvents, todoCompletionEvents]);
+    return [...historyEvents, ...subtaskCompletionTimes];
+  }, [historyEvents, subtaskCompletionTimes]);
 
   const activityHeatmap = useMemo(() => {
     const end = startOfWeek(new Date());
@@ -273,17 +636,6 @@ export function App() {
     return weeks;
   }, [activityEvents]);
 
-  const sortedTodos = useMemo(() => {
-    const list = [...todos];
-    list.sort((a, b) => {
-      const aDone = Boolean(a.completedAt);
-      const bDone = Boolean(b.completedAt);
-      if (aDone !== bDone) return aDone ? 1 : -1;
-      return a.text.localeCompare(b.text);
-    });
-    return list;
-  }, [todos]);
-
   const activitySummary = useMemo(() => {
     const uniqueDays = new Set(activityEvents.map((event) => toDateKey(event.at)).filter(Boolean));
     const currentStreakBase = [...uniqueDays].sort().reverse();
@@ -308,168 +660,8 @@ export function App() {
     };
   }, [activityEvents]);
 
-  const grouped = useMemo(() => {
-    const byStatus = Object.fromEntries(STATUSES.map((status) => [status, []]));
-
-    for (const card of activeCards) {
-      const currentStatus = getCurrentStatus(card);
-      if (draftMove?.cardId === card.id && draftMove.fromStatus === currentStatus) {
-        continue;
-      }
-      if (trashDraft?.cardId === card.id && trashDraft.status === currentStatus) {
-        byStatus[currentStatus]?.push({
-          ...card,
-          isTrashDraft: true,
-        });
-      } else {
-        byStatus[currentStatus]?.push(card);
-      }
-    }
-
-    if (draftMove) {
-      const sourceCard = activeCards.find((card) => card.id === draftMove.cardId);
-      if (sourceCard) {
-        byStatus[draftMove.toStatus]?.unshift({
-          ...sourceCard,
-          status: draftMove.toStatus,
-          isDraftMove: true,
-        });
-      }
-    }
-
-    if (newCardDraft) {
-      byStatus[newCardDraft.status]?.unshift({
-        id: "__new-card__",
-        title: "",
-        isNewCard: true,
-      });
-    }
-
-    return byStatus;
-  }, [activeCards, draftMove, newCardDraft, trashDraft]);
-
-  const cancelDraftMove = () => {
-    if (isCommitting) return;
-    setDraftMove(null);
-    setDraftComment("");
-    setHoverStatus(null);
-    setHoverTrash(false);
-    setDraggedCardId(null);
-  };
-
-  const cancelTrashDraft = () => {
-    setTrashDraft(null);
-    setHoverTrash(false);
-    setDraggedCardId(null);
-  };
-
-  const cancelNewCardDraft = () => {
-    if (isCreating) return;
-    setNewCardDraft(null);
-  };
-
-  useEffect(() => {
-    if (!isInteractive || !draftMove) return undefined;
-
-    const handleUndo = (event) => {
-      const isUndo = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z";
-      if (!isUndo) return;
-
-      event.preventDefault();
-      cancelDraftMove();
-    };
-
-    window.addEventListener("keydown", handleUndo);
-    return () => window.removeEventListener("keydown", handleUndo);
-  }, [draftMove, isCommitting, isInteractive]);
-
-  const openMoveDraft = (card, toStatus) => {
-    if (!isInteractive) return;
-    const fromStatus = getCurrentStatus(card);
-    if (!toStatus || fromStatus === toStatus) return;
-
-    setError("");
-    setDraftComment("");
-    setDraftMove({
-      cardId: card.id,
-      title: card.title,
-      track: card.track,
-      fromStatus,
-      toStatus,
-      githubUrl: card.links?.githubUrl || "",
-      blogUrl: card.links?.blogUrl || "",
-    });
-  };
-
-  const startNewCardDraft = (status) => {
-    if (!isInteractive) return;
-    setError("");
-    setNewCardDraft({
-      status,
-      title: "",
-      description: "",
-      track: "#Code",
-    });
-  };
-
-  const handleCreateCard = async () => {
-    if (!isInteractive || !newCardDraft) return;
-    const title = newCardDraft.title.trim();
-
-    if (!title) {
-      setError("A title is required to create a card.");
-      return;
-    }
-
-    try {
-      setIsCreating(true);
-      setError("");
-      const { card } = await requestJson("/api/cards", {
-        method: "POST",
-        body: JSON.stringify({
-          title,
-          description: newCardDraft.description,
-          track: newCardDraft.track,
-          status: newCardDraft.status,
-        }),
-      });
-      setCards((prev) => [...prev, card]);
-      setNewCardDraft(null);
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const handleCommitMove = async () => {
-    if (!isInteractive || !draftMove) return;
-
-    try {
-      setIsCommitting(true);
-      setError("");
-      const { card } = await requestJson("/api/commit-move", {
-        method: "POST",
-        body: JSON.stringify({
-          cardId: draftMove.cardId,
-          toStatus: draftMove.toStatus,
-          comment: draftComment,
-          githubUrl: draftMove.githubUrl,
-          blogUrl: draftMove.blogUrl,
-        }),
-      });
-
-      setCards((prev) => prev.map((entry) => (entry.id === card.id ? card : entry)));
-      cancelDraftMove();
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setIsCommitting(false);
-    }
-  };
-
   const handleCommand = async (path, start, stop, successMessage) => {
-    if (!isDev) return;
+    if (!isInteractive) return;
 
     try {
       start(true);
@@ -484,191 +676,163 @@ export function App() {
     }
   };
 
-  const handleDeleteCard = async (id) => {
+  const handleCreateTopic = async () => {
     if (!isInteractive) return;
-
+    const title = topicTitle.trim();
+    if (!title) {
+      setError("Topic title is required.");
+      return;
+    }
     try {
+      setIsCreatingTopic(true);
       setError("");
-      await requestJson(`/api/cards/${id}`, {
-        method: "DELETE",
+      const { card } = await requestJson("/api/topics", {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          track: topicTrack,
+          tasksText,
+        }),
       });
-      setCards((prev) => prev.filter((entry) => entry.id !== id));
-      if (draftMove?.cardId === id) {
-        cancelDraftMove();
-      }
+      setCards((prev) => [...prev, migrateCardShape(card)]);
+      setTopicTitle("");
+      setTasksText("");
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setIsCreatingTopic(false);
     }
   };
 
-  const openTrashDraft = (card) => {
+  const handleToggleSubtask = async (topicId, subtaskId) => {
     if (!isInteractive) return;
-    setError("");
-    setTrashDraft({
-      cardId: card.id,
-      title: card.title,
-      status: getCurrentStatus(card),
-      reason: "",
+    try {
+      setTogglingSubId(subtaskId);
+      setError("");
+      const payload = await requestJson("/api/subtasks/toggle", {
+        method: "POST",
+        body: JSON.stringify({ topicId, subtaskId }),
+      });
+      const { card, ledgerEntry } = payload;
+      setCards((prev) => prev.map((c) => (c.id === card.id ? migrateCardShape(card) : c)));
+      if (ledgerEntry) {
+        setLedgerEntries((prev) => [...prev, ledgerEntry]);
+      }
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setTogglingSubId(null);
+    }
+  };
+
+  const openAddSlot = (topicId, parentSubtaskId) => {
+    setAddSlot({ topicId, parentSubtaskId });
+    setAddDraft("");
+  };
+
+  const cancelAddSlot = () => {
+    setAddSlot(null);
+    setAddDraft("");
+  };
+
+  const submitAddSlot = async () => {
+    if (!isInteractive || !addSlot) return;
+    const text = addDraft.trim();
+    if (!text) return;
+    try {
+      setIsSubmittingAdd(true);
+      setError("");
+      const { card } = await requestJson(
+        `/api/topics/${encodeURIComponent(addSlot.topicId)}/subtasks`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            parentSubtaskId: addSlot.parentSubtaskId,
+            text,
+          }),
+        }
+      );
+      setCards((prev) => prev.map((c) => (c.id === card.id ? migrateCardShape(card) : c)));
+      cancelAddSlot();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsSubmittingAdd(false);
+    }
+  };
+
+  const requestDeleteSubtask = (topicId, subtaskId, label) => {
+    setDeleteConfirm({
+      kind: "subtask",
+      topicId,
+      subtaskId,
+      label: label || "this task",
     });
   };
 
-  const handleTrashCard = async () => {
-    if (!isInteractive || !trashDraft) return;
-    const reason = trashDraft.reason.trim();
-
-    if (!reason) {
-      setError("A reason is required to discard a card.");
-      return;
-    }
-
-    try {
-      setError("");
-      await requestJson("/api/trash-card", {
-        method: "POST",
-        body: JSON.stringify({
-          cardId: trashDraft.cardId,
-          reason,
-        }),
-      });
-      setCards((prev) => prev.filter((entry) => entry.id !== trashDraft.cardId));
-      cancelTrashDraft();
-    } catch (requestError) {
-      setError(requestError.message);
-    }
+  const requestDeleteTopic = (topicId, title) => {
+    setDeleteConfirm({
+      kind: "topic",
+      topicId,
+      label: title || "this topic",
+    });
   };
 
-  const handleArchiveCard = async (id, reason = "archived") => {
-    if (!isInteractive) return;
+  const cancelDelete = () => setDeleteConfirm(null);
 
+  const executeDelete = async () => {
+    const pending = deleteConfirmRef.current;
+    if (!isInteractive || !pending) return;
+    if (pending.kind !== "topic" && !pending.subtaskId) {
+      setError("Missing sub-task id.");
+      return;
+    }
     try {
       setError("");
-      await requestJson("/api/archive-card", {
-        method: "POST",
-        body: JSON.stringify({ cardId: id, reason }),
-      });
-      setCards((prev) =>
-        prev.map((card) =>
-          card.id === id
-            ? {
-                ...card,
-                archived: true,
-                archivedAt: new Date().toISOString(),
-                archiveReason: reason,
-              }
-            : card
-        )
-      );
-      if (draftMove?.cardId === id) {
-        cancelDraftMove();
+      if (pending.kind === "topic") {
+        await requestJson(`/api/cards/${encodeURIComponent(pending.topicId)}`, {
+          method: "DELETE",
+        });
+        setCards((prev) => prev.filter((c) => c.id !== pending.topicId));
+      } else {
+        const { card } = await requestJson(
+          `/api/topics/${encodeURIComponent(pending.topicId)}/subtasks/${encodeURIComponent(
+            pending.subtaskId
+          )}`,
+          { method: "DELETE" }
+        );
+        setCards((prev) => prev.map((c) => (c.id === card.id ? migrateCardShape(card) : c)));
       }
     } catch (requestError) {
       setError(requestError.message);
-    }
-  };
-
-  const handleUnarchiveCard = async (id) => {
-    if (!isInteractive) return;
-
-    try {
-      setError("");
-      const { card } = await requestJson("/api/unarchive-card", {
-        method: "POST",
-        body: JSON.stringify({ cardId: id }),
-      });
-      setCards((prev) => prev.map((entry) => (entry.id === id ? card : entry)));
-    } catch (requestError) {
-      setError(requestError.message);
-    }
-  };
-
-  const handleAddTodo = async () => {
-    if (!isInteractive) return;
-    const text = todoDraft.trim();
-    if (!text) {
-      setError("Todo text is required.");
-      return;
-    }
-
-    try {
-      setIsAddingTodo(true);
-      setError("");
-      const { todo } = await requestJson("/api/todos/add", {
-        method: "POST",
-        body: JSON.stringify({ text }),
-      });
-      setTodos((prev) => [...prev, todo]);
-      setTodoDraft("");
-    } catch (requestError) {
-      setError(requestError.message);
     } finally {
-      setIsAddingTodo(false);
+      setDeleteConfirm(null);
     }
   };
 
-  const handleToggleTodo = async (id) => {
-    if (!isInteractive) return;
-    try {
-      setTogglingTodoId(id);
-      setError("");
-      const { todo } = await requestJson("/api/todos/toggle", {
-        method: "POST",
-        body: JSON.stringify({ id }),
-      });
-      setTodos((prev) => prev.map((t) => (t.id === todo.id ? todo : t)));
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setTogglingTodoId(null);
-    }
-  };
-
-  const handleDrop = (status) => {
-    if (!isInteractive || !draggedCardId) return;
-    const card = cards.find((entry) => entry.id === draggedCardId);
-    setDraggedCardId(null);
-    setHoverStatus(null);
-    if (!card) return;
-    openMoveDraft(card, status);
-  };
-
-  const handleCompleteDrop = () => {
-    if (!isInteractive || !draggedCardId) return;
-    const card = cards.find((entry) => entry.id === draggedCardId);
-    setDraggedCardId(null);
-    setHoverStatus(null);
-    if (!card || getCurrentStatus(card) !== FINAL_STATUS) return;
-    handleArchiveCard(card.id, "explored-successfully");
-  };
-
-  const handleTrashDrop = () => {
-    if (!isInteractive || !draggedCardId) return;
-    const card = cards.find((entry) => entry.id === draggedCardId);
-    setDraggedCardId(null);
-    setHoverStatus(null);
-    setHoverTrash(false);
-    if (!card) return;
-    openTrashDraft(card);
-  };
+  if (!isInteractive) {
+    return <PublicLedgerView events={publicLedgerEvents} />;
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50 px-6 py-8 md:px-10">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-4 flex items-center justify-between border border-neutral-200 bg-white px-4 py-3">
-          <div className="font-serif text-lg font-medium text-neutral-900">Research Lab</div>
-          {isDev ? (
-            <div className="flex items-center gap-2">
-              <div className="mr-2 text-xs text-neutral-500">
-                {commandMessage || "Command Center"}
-              </div>
+      <div className="mx-auto max-w-5xl">
+        <header className="mb-6 flex flex-col gap-4 border border-neutral-200 bg-white px-4 py-4 md:flex-row md:items-center md:justify-between">
+          <div className="font-serif text-xl font-medium text-neutral-900">Research Lab</div>
+          {isInteractive ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-2 text-xs text-neutral-500">
+                {commandMessage || "Sync & publish update the portfolio mirror."}
+              </span>
               <button
                 type="button"
                 disabled={isSyncing || isPublishing}
                 onClick={() =>
                   handleCommand("/api/sync", setIsSyncing, setIsSyncing, "Portfolio sync complete.")
                 }
-                className="border border-neutral-200 px-3 py-1.5 text-xs text-neutral-700 transition duration-fast hover:border-neutral-400 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-sm border-2 border-emerald-600 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isSyncing ? "Syncing..." : "Sync Portfolio"}
+                {isSyncing ? "Syncing…" : "Sync Portfolio"}
               </button>
               <button
                 type="button"
@@ -681,15 +845,15 @@ export function App() {
                     "Publish complete."
                   )
                 }
-                className="border border-neutral-200 px-3 py-1.5 text-xs text-neutral-700 transition duration-fast hover:border-neutral-400 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-sm border-2 border-neutral-900 bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isPublishing ? "Publishing..." : "Publish to Cloud"}
+                {isPublishing ? "Publishing…" : "Publish to Cloud"}
               </button>
             </div>
           ) : (
             <div className="text-[11px] text-neutral-400">Public build: {BUILD_STAMP}</div>
           )}
-        </div>
+        </header>
 
         {error ? (
           <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -697,283 +861,155 @@ export function App() {
           </div>
         ) : null}
 
-        <main className="grid gap-8 border border-neutral-200 bg-white p-6 xl:grid-cols-6">
-          {COLUMNS.map((column, index) => (
-            <section
-              key={column.title}
-              onDragOver={
-                isInteractive
-                  ? (event) => {
-                      event.preventDefault();
-                      setHoverStatus(column.title);
-                    }
-                  : undefined
-              }
-              onDragLeave={
-                isInteractive
-                  ? () => setHoverStatus((current) => (current === column.title ? null : current))
-                  : undefined
-              }
-              onDrop={
-                isInteractive
-                  ? (event) => {
-                      event.preventDefault();
-                      handleDrop(column.title);
-                    }
-                  : undefined
-              }
-              className={`group min-h-[30rem] ${index > 0 ? "border-l border-neutral-200 pl-8" : ""}`}
+        {deleteConfirm ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/40 px-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-confirm-title"
+            onClick={cancelDelete}
+          >
+            <div
+              className="w-full max-w-md border border-neutral-300 bg-white p-5 shadow-xl"
+              onClick={(event) => event.stopPropagation()}
             >
-              <header className={`mb-5 flex items-start justify-between gap-3 border-t-2 pt-3 ${column.border}`}>
-                <h2 className="font-serif text-xl font-medium text-neutral-900">{column.title}</h2>
-                {isInteractive && column.title === INITIAL_STATUS ? (
-                  <button
-                    type="button"
-                    onClick={() => startNewCardDraft(column.title)}
-                    className="opacity-0 transition duration-fast group-hover:opacity-100 text-xs text-neutral-500 hover:text-neutral-900"
-                  >
-                    Add
-                  </button>
-                ) : null}
-              </header>
-
-              <div
-                className={`space-y-4 rounded-sm transition duration-normal ${
-                  hoverStatus === column.title ? "ring-1 ring-neutral-300" : ""
-                }`}
-              >
-                {grouped[column.title].map((card) => {
-                  const isDraftMove = Boolean(card.isDraftMove);
-                  const isNewCard = Boolean(card.isNewCard);
-                  const isTrashDraft = Boolean(card.isTrashDraft);
-                  const isGhost = isInteractive && draggedCardId === card.id && !isDraftMove && !isNewCard && !isTrashDraft;
-
-                  return (
-                    <article
-                      key={isNewCard ? "__new-card__" : isDraftMove ? `${card.id}-draft` : card.id}
-                      draggable={isInteractive && !isDraftMove && !isNewCard && !isTrashDraft}
-                      onDragStart={
-                        isInteractive && !isNewCard && !isTrashDraft ? () => setDraggedCardId(card.id) : undefined
-                      }
-                      onDragEnd={
-                        isInteractive && !isNewCard && !isTrashDraft
-                          ? () => {
-                              setDraggedCardId(null);
-                              setHoverStatus(null);
-                              setHoverTrash(false);
-                            }
-                          : undefined
-                      }
-                      className={`group/card border border-neutral-200 bg-white p-4 shadow-sm transition duration-normal hover:shadow-md ${
-                        isGhost ? "opacity-20 scale-[0.98]" : ""
-                      } ${
-                        isDraftMove ? "ring-2 ring-emerald-200 scale-[1.02]" : ""
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-2">
-                          <h3 className="font-serif text-lg font-medium text-neutral-900">
-                            {isNewCard ? "New Card" : card.title}
-                          </h3>
-                          {!isNewCard && (card.links?.githubUrl || card.links?.blogUrl) ? (
-                            <div className="flex items-center gap-2 text-neutral-500">
-                              {card.links?.githubUrl ? (
-                                <a href={card.links.githubUrl} target="_blank" rel="noreferrer" className="hover:text-neutral-900">
-                                  <GitHubGlyph />
-                                </a>
-                              ) : null}
-                              {card.links?.blogUrl ? (
-                                <a href={card.links.blogUrl} target="_blank" rel="noreferrer" className="hover:text-neutral-900">
-                                  <LinkGlyph />
-                                </a>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {isInteractive && !isDraftMove && !isNewCard ? (
-                            <button
-                              type="button"
-                              onClick={() => handleArchiveCard(card.id)}
-                              className="opacity-0 transition duration-fast group-hover/card:opacity-100 text-neutral-400 hover:text-neutral-700"
-                              title="Archive"
-                            >
-                              <ArchiveGlyph />
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      {isInteractive && isNewCard ? (
-                        <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4">
-                          <input
-                            type="text"
-                            value={newCardDraft?.title || ""}
-                            onChange={(event) =>
-                              setNewCardDraft((current) =>
-                                current ? { ...current, title: event.target.value } : current
-                              )
-                            }
-                            placeholder="Title"
-                            className="w-full border border-neutral-200 bg-white px-3 py-2 font-serif text-base text-neutral-900 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-neutral-400"
-                          />
-                          <textarea
-                            value={newCardDraft?.description || ""}
-                            onChange={(event) =>
-                              setNewCardDraft((current) =>
-                                current ? { ...current, description: event.target.value } : current
-                              )
-                            }
-                            placeholder="Describe the hypothesis or next step..."
-                            className="min-h-24 w-full border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-700 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-neutral-400"
-                          />
-                          <select
-                            value={newCardDraft?.track || "#Code"}
-                            onChange={(event) =>
-                              setNewCardDraft((current) =>
-                                current ? { ...current, track: event.target.value } : current
-                              )
-                            }
-                            className="w-full border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-700 outline-none transition duration-fast focus:border-neutral-400"
-                          >
-                            {TRACK_TAGS.map((track) => (
-                              <option key={track} value={track}>
-                                {track}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="flex items-center justify-between">
-                            <button
-                              type="button"
-                              onClick={cancelNewCardDraft}
-                              className="text-xs text-neutral-500 hover:text-neutral-900"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isCreating}
-                              onClick={handleCreateCard}
-                              className="rounded-sm bg-neutral-900 px-3 py-1.5 text-sm text-white transition duration-fast hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isCreating ? "Creating..." : "Create"}
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {isInteractive && isDraftMove ? (
-                        <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4">
-                          <textarea
-                            value={draftComment}
-                            onChange={(event) => setDraftComment(event.target.value)}
-                            placeholder="Log the Delta for this move..."
-                            className="min-h-28 w-full border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-700 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-emerald-500"
-                          />
-                          {draftMove.toStatus === "Artifacts" ? (
-                            <>
-                              <input
-                                type="url"
-                                value={draftMove.githubUrl || ""}
-                                onChange={(event) =>
-                                  setDraftMove((current) =>
-                                    current ? { ...current, githubUrl: event.target.value } : current
-                                  )
-                                }
-                                placeholder="GitHub Repo URL"
-                                className="w-full border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-700 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-neutral-400"
-                              />
-                              <input
-                                type="url"
-                                value={draftMove.blogUrl || ""}
-                                onChange={(event) =>
-                                  setDraftMove((current) =>
-                                    current ? { ...current, blogUrl: event.target.value } : current
-                                  )
-                                }
-                                placeholder="Blog/Documentation URL"
-                                className="w-full border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-700 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-neutral-400"
-                              />
-                            </>
-                          ) : null}
-                          <div className="flex justify-end">
-                            <button
-                              type="button"
-                              disabled={isCommitting}
-                              onClick={handleCommitMove}
-                              className="rounded-sm bg-emerald-500 px-3 py-1.5 text-sm text-white transition duration-fast hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isCommitting ? "Committing..." : "Commit"}
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {isInteractive && isTrashDraft ? (
-                        <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4">
-                          <textarea
-                            value={trashDraft?.reason || ""}
-                            onChange={(event) =>
-                              setTrashDraft((current) =>
-                                current ? { ...current, reason: event.target.value } : current
-                              )
-                            }
-                            placeholder="Why is this being discarded?"
-                            className="min-h-24 w-full border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-700 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-neutral-400"
-                          />
-                          <div className="flex items-center justify-between">
-                            <button
-                              type="button"
-                              onClick={cancelTrashDraft}
-                              className="text-xs text-neutral-500 hover:text-neutral-900"
-                            >
-                              Keep
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleTrashCard}
-                              className="rounded-sm border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-sm text-white transition duration-fast hover:bg-neutral-700"
-                            >
-                              Discard
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </article>
-                  );
-                })}
-
-                {isInteractive && column.title === FINAL_STATUS ? (
-                  <div
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      handleCompleteDrop();
-                    }}
-                    className="border border-dashed border-emerald-200 px-4 py-5 text-center text-xs text-neutral-500"
-                  >
-                    Move beyond Broadcast → Explored Successfully
-                  </div>
-                ) : null}
-
-                {grouped[column.title].length === 0 ? (
-                  <div className="border border-dashed border-neutral-200 bg-white px-4 py-10" />
-                ) : null}
+              <h2 id="delete-confirm-title" className="font-serif text-xl font-medium text-neutral-900">
+                Remove {deleteConfirm.kind === "subtask" ? "task" : "topic"}?
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-neutral-700">
+                <span className="font-medium">{deleteConfirm.label}</span>{" "}
+                {deleteConfirm.kind === "subtask"
+                  ? "and everything nested under it will be removed."
+                  : "and all nested tasks under it will be removed."}{" "}
+                This cannot be undone.
+              </p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={cancelDelete}
+                  className="rounded border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-800 hover:bg-neutral-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={executeDelete}
+                  className="rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-800"
+                  autoFocus
+                >
+                  Remove
+                </button>
               </div>
-            </section>
-          ))}
-        </main>
+            </div>
+          </div>
+        ) : null}
 
-        <section className="mt-8 grid gap-8 xl:grid-cols-[1.4fr_1fr]">
-          <article className="border border-neutral-200 bg-white p-6">
+        <section className="mb-8 border border-neutral-200 bg-white p-6">
+          <div className="mb-6">
+            <h2 className="font-serif text-2xl font-medium text-neutral-900">Activity Signal</h2>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-600">
+              A GitHub-style activity field showing research movement and completed subtasks over the
+              last {HEATMAP_WEEKS} weeks.
+            </p>
+          </div>
+
+          <div className="mb-6 grid grid-cols-3 gap-3">
+            <div className="border border-neutral-200 p-3">
+              <div className="font-serif text-xl text-neutral-900">{activitySummary.totalEvents}</div>
+              <div className="mt-1 text-xs uppercase tracking-[0.18em] text-neutral-400">
+                Total Events
+              </div>
+            </div>
+            <div className="border border-neutral-200 p-3">
+              <div className="font-serif text-xl text-neutral-900">{activitySummary.activeDays}</div>
+              <div className="mt-1 text-xs uppercase tracking-[0.18em] text-neutral-400">
+                Active Days
+              </div>
+            </div>
+            <div className="border border-neutral-200 p-3">
+              <div className="font-serif text-xl text-neutral-900">{activitySummary.currentStreak}</div>
+              <div className="mt-1 text-xs uppercase tracking-[0.18em] text-neutral-400">
+                Current Streak
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2 overflow-x-auto">
+            <div className="flex gap-1">
+              {activityHeatmap.map((week, index) => (
+                <div key={`week-${index}`} className="grid grid-rows-7 gap-1">
+                  {week.map((day) => (
+                    <div
+                      key={day.key}
+                      title={`${day.label}: ${day.count} events`}
+                      className={`h-3 w-3 rounded-[2px] ${getIntensityClass(day.count)}`}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-neutral-400">
+              <span>Less</span>
+              <span>More</span>
+            </div>
+          </div>
+        </section>
+
+        <div className="grid gap-8 lg:grid-cols-[1fr_1.1fr]">
+          <section className="border border-neutral-200 bg-white p-6">
+            <h2 className="font-serif text-xl font-medium text-neutral-900">New topic</h2>
+            <p className="mt-2 text-sm text-neutral-600">
+              Set a <span className="font-medium">Topic</span> and <span className="font-medium">Tasks</span> (one
+              per line). Use <span className="font-medium">Add Sub-task</span> under each row for infinite nesting.
+            </p>
+            <div className="mt-4 space-y-3">
+              <input
+                type="text"
+                value={topicTitle}
+                onChange={(e) => setTopicTitle(e.target.value)}
+                placeholder="Topic title"
+                className="w-full border border-neutral-200 bg-white px-3 py-2 font-serif text-base text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-neutral-400"
+              />
+              <textarea
+                value={tasksText}
+                onChange={(e) => setTasksText(e.target.value)}
+                placeholder={"Tasks (one per line)\ne.g.\nRead paper\nRun baseline"}
+                className="min-h-28 w-full border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-700 outline-none placeholder:text-neutral-400 focus:border-neutral-400"
+              />
+              <select
+                value={topicTrack}
+                onChange={(e) => setTopicTrack(e.target.value)}
+                className="w-full border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-700 outline-none focus:border-neutral-400"
+              >
+                {TRACK_TAGS.map((track) => (
+                  <option key={track} value={track}>
+                    {track}
+                  </option>
+                ))}
+              </select>
+              {isInteractive ? (
+                <button
+                  type="button"
+                  disabled={isCreatingTopic || !topicTitle.trim()}
+                  onClick={handleCreateTopic}
+                  className="w-full rounded-sm bg-neutral-900 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isCreatingTopic ? "Adding…" : "Add topic"}
+                </button>
+              ) : (
+                <p className="text-xs text-neutral-400">Read-only build — open dev server to edit.</p>
+              )}
+            </div>
+          </section>
+
+          <section className="border border-neutral-200 bg-white p-6">
             <div className="mb-6 flex items-baseline justify-between gap-4">
               <div>
                 <h2 className="font-serif text-2xl font-medium text-neutral-900">
-                  Today's Research Ledger
+                  Today&apos;s Research Ledger
                 </h2>
-                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-600">
-                  A clean record of what changed today across the lab, from fresh hypotheses to
-                  new outputs and artifacts.
+                <p className="mt-2 max-w-xl text-sm leading-relaxed text-neutral-600">
+                  Persisted local task transitions and research movement for today.
                 </p>
               </div>
               <div className="text-xs uppercase tracking-[0.18em] text-neutral-400">
@@ -982,10 +1018,10 @@ export function App() {
             </div>
 
             {todaysEvents.length ? (
-              <div className="space-y-5">
-                {todaysEvents.map((event) => (
+              <div className="max-h-80 space-y-5 overflow-y-auto pr-1">
+                {todaysEvents.map((event, idx) => (
                   <div
-                    key={`${event.cardId}-${event.at}-${event.status}`}
+                    key={`${event.cardId}-${event.at}-${event.status ?? event.type}-${idx}`}
                     className="border-l-2 border-emerald-500 pl-4"
                   >
                     <div className="text-[11px] uppercase tracking-[0.18em] text-neutral-400">
@@ -993,10 +1029,8 @@ export function App() {
                     </div>
                     <div className="mt-1 font-serif text-lg text-neutral-900">{event.title}</div>
                     <p className="mt-1 text-sm text-neutral-600">
-                      {event.type === "todo" ? (
-                        <>
-                          Completed todo in <span className="font-medium">{event.status}</span>
-                        </>
+                      {event.type === "ledger" ? (
+                        <span className="font-medium">{event.detail}</span>
                       ) : event.type === "created" ? (
                         <>
                           Started in <span className="font-medium">{event.status}</span>
@@ -1009,7 +1043,7 @@ export function App() {
                       )}
                     </p>
                     {event.comment ? (
-                      <p className="mt-2 font-mono text-sm leading-relaxed text-neutral-700 whitespace-pre-wrap">
+                      <p className="mt-2 whitespace-pre-wrap font-mono text-sm leading-relaxed text-neutral-700">
                         {event.comment}
                       </p>
                     ) : null}
@@ -1017,215 +1051,102 @@ export function App() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-neutral-500">
-                No lab activity has been logged for today yet.
-              </p>
+              <p className="text-sm text-neutral-500">No lab activity logged for today yet.</p>
             )}
-          </article>
-
-          <article className="border border-neutral-200 bg-white p-6">
-            <div className="mb-6">
-              <h2 className="font-serif text-2xl font-medium text-neutral-900">Activity Signal</h2>
-              <p className="mt-2 text-sm leading-relaxed text-neutral-600">
-                A GitHub-style activity field showing the density of research movement over the
-                last {HEATMAP_WEEKS} weeks.
-              </p>
-            </div>
-
-            <div className="mb-6 grid grid-cols-3 gap-3">
-              <div className="border border-neutral-200 p-3">
-                <div className="font-serif text-xl text-neutral-900">{activitySummary.totalEvents}</div>
-                <div className="mt-1 text-xs uppercase tracking-[0.18em] text-neutral-400">
-                  Total Events
-                </div>
-              </div>
-              <div className="border border-neutral-200 p-3">
-                <div className="font-serif text-xl text-neutral-900">{activitySummary.activeDays}</div>
-                <div className="mt-1 text-xs uppercase tracking-[0.18em] text-neutral-400">
-                  Active Days
-                </div>
-              </div>
-              <div className="border border-neutral-200 p-3">
-                <div className="font-serif text-xl text-neutral-900">
-                  {activitySummary.currentStreak}
-                </div>
-                <div className="mt-1 text-xs uppercase tracking-[0.18em] text-neutral-400">
-                  Current Streak
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2 overflow-x-auto">
-              <div className="flex gap-1">
-                {activityHeatmap.map((week, index) => (
-                  <div key={`week-${index}`} className="grid grid-rows-7 gap-1">
-                    {week.map((day) => (
-                      <div
-                        key={day.key}
-                        title={`${day.label}: ${day.count} events`}
-                        className={`h-3 w-3 rounded-[2px] ${getIntensityClass(day.count)}`}
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-neutral-400">
-                <span>Less</span>
-                <span>More</span>
-              </div>
-            </div>
-
-            {isInteractive ? (
-              <div className="mt-8 border-t border-neutral-200 pt-6">
-                <div className="mb-4 flex items-baseline justify-between gap-4">
-                  <h3 className="font-serif text-xl font-medium text-neutral-900">Todo</h3>
-                  <div className="text-xs uppercase tracking-[0.18em] text-neutral-400">
-                    {todos.filter((t) => t.completedAt).length} done
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={todoDraft}
-                    onChange={(event) => setTodoDraft(event.target.value)}
-                    placeholder="Add a task to track..."
-                    className="w-full border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition duration-fast placeholder:text-neutral-400 focus:border-neutral-400"
-                  />
-                  <button
-                    type="button"
-                    disabled={isAddingTodo || !todoDraft.trim()}
-                    onClick={handleAddTodo}
-                    className="rounded-sm bg-neutral-900 px-3 py-1.5 text-sm text-white transition duration-fast hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isAddingTodo ? "Adding..." : "Add"}
-                  </button>
-                </div>
-
-                <div className="mt-4 space-y-2">
-                  {sortedTodos.length ? (
-                    sortedTodos.map((todo) => {
-                      const done = Boolean(todo.completedAt);
-                      const isBusy = togglingTodoId === todo.id;
-                      return (
-                        <label
-                          key={todo.id}
-                          className={`flex cursor-pointer items-start gap-3 rounded border px-3 py-2 text-sm transition ${
-                            done
-                              ? "border-neutral-200 bg-neutral-50"
-                              : "border-neutral-200 bg-white hover:bg-neutral-50"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={done}
-                            disabled={isBusy}
-                            onChange={() => handleToggleTodo(todo.id)}
-                            className="mt-1"
-                          />
-                          <span className={done ? "flex-1 line-through text-neutral-500" : "flex-1 text-neutral-800"}>
-                            {todo.text}
-                          </span>
-                        </label>
-                      );
-                    })
-                  ) : (
-                    <p className="text-sm italic text-neutral-500">No todos yet.</p>
-                  )}
-                </div>
-              </div>
-            ) : null}
-          </article>
-        </section>
-
-        <div className="mt-8 text-sm text-neutral-500">
-          Archived: {archivedCards.length} |{" "}
-          <button
-            type="button"
-            onClick={() => setShowArchiveOverlay(true)}
-            className="text-neutral-700 underline-offset-2 hover:underline"
-          >
-            View All
-          </button>
+          </section>
         </div>
 
-        {showArchiveOverlay ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/20 px-4">
-            <div className="max-h-[80vh] w-full max-w-3xl overflow-y-auto border border-neutral-200 bg-white p-6 shadow-md">
-              <div className="mb-6 flex items-center justify-between gap-4">
-                <div>
-                  <h2 className="font-serif text-2xl font-medium text-neutral-900">Archived Work</h2>
-                  <p className="mt-2 text-sm text-neutral-600">
-                    Quietly stored explorations and completed research threads.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowArchiveOverlay(false)}
-                  className="text-xs text-neutral-500 hover:text-neutral-900"
-                >
-                  Close
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {archivedCards.length ? (
-                  archivedCards.map((card) => (
-                    <div key={card.id} className="flex items-center justify-between border border-neutral-200 p-4">
-                      <div>
-                        <div className="font-serif text-lg text-neutral-900">{card.title}</div>
-                        <div className="mt-1 text-sm text-neutral-500">
-                          {card.archiveReason === "explored-successfully"
-                            ? "Explored Successfully"
-                            : "Archived"}
-                        </div>
+        <div className="mt-10 border border-neutral-200 bg-white p-6">
+          <h2 className="mb-6 font-serif text-xl font-medium text-neutral-900">Tasks</h2>
+          <div className="divide-y divide-neutral-200">
+            {cards.length === 0 ? (
+              <p className="py-6 text-sm text-neutral-500">No topics yet.</p>
+            ) : (
+              cards.map((card) => (
+                <article key={card.id} className="py-8 first:pt-2">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-serif text-xl font-medium text-neutral-900">{card.title}</h3>
+                      <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500">
+                        <span>{card.track}</span>
+                        {card.links?.githubUrl ? (
+                          <a
+                            href={card.links.githubUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-neutral-600 hover:text-neutral-900"
+                          >
+                            <GitHubGlyph />
+                          </a>
+                        ) : null}
                       </div>
-                      {isInteractive ? (
+                    </div>
+                    {isInteractive ? (
+                      <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => handleUnarchiveCard(card.id)}
-                          className="text-xs text-neutral-600 hover:text-neutral-900"
+                          onClick={() => openAddSlot(card.id, null)}
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50"
                         >
-                          Un-archive
+                          + Root task
                         </button>
-                      ) : null}
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-neutral-500">No archived cards yet.</p>
-                )}
-              </div>
-            </div>
+                        <button
+                          type="button"
+                          onClick={() => requestDeleteTopic(card.id, card.title)}
+                          className="rounded border border-neutral-200 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-100"
+                        >
+                          Remove topic
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {isInteractive &&
+                  addSlot?.topicId === card.id &&
+                  addSlot.parentSubtaskId === null ? (
+                    <InlineAddForm
+                      draft={addDraft}
+                      setDraft={setAddDraft}
+                      onSubmit={submitAddSlot}
+                      onCancel={cancelAddSlot}
+                      disabled={isSubmittingAdd}
+                      placeholder="New root-level task…"
+                    />
+                  ) : null}
+                  <div className="mt-4">
+                    {card.subtasks?.length ? (
+                      <ul className="space-y-1">
+                        {card.subtasks.map((node, i) => (
+                          <SubtaskItem
+                            key={node.id}
+                            topicId={card.id}
+                            node={node}
+                            indexPath={[i]}
+                            togglingId={togglingSubId}
+                            onToggle={handleToggleSubtask}
+                            onOpenAddInline={openAddSlot}
+                            onDeleteSubtaskRequest={requestDeleteSubtask}
+                            interactive={isInteractive}
+                            addSlot={addSlot}
+                            addDraft={addDraft}
+                            setAddDraft={setAddDraft}
+                            onSubmitAddDraft={submitAddSlot}
+                            onCancelAddDraft={cancelAddSlot}
+                            isSubmittingAdd={isSubmittingAdd}
+                          />
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-neutral-400 italic">
+                        No tasks — add lines when creating a topic, or use + Root task.
+                      </p>
+                    )}
+                  </div>
+                </article>
+              ))
+            )}
           </div>
-        ) : null}
-
-        {isInteractive ? (
-          <div
-            onDragOver={(event) => {
-              event.preventDefault();
-              setHoverTrash(true);
-            }}
-            onDragLeave={() => setHoverTrash(false)}
-            onDrop={(event) => {
-              event.preventDefault();
-              handleTrashDrop();
-            }}
-            className={`fixed bottom-6 left-6 z-40 flex items-center gap-3 border bg-white px-4 py-3 shadow-sm transition duration-normal ${
-              hoverTrash ? "border-neutral-900 shadow-md" : "border-neutral-200"
-            }`}
-          >
-            <div className="text-neutral-600">
-              <TrashGlyph />
-            </div>
-            <div>
-              <div className="text-xs uppercase tracking-[0.18em] text-neutral-400">Dustbin</div>
-              <div className="text-sm text-neutral-700">Discard with reason</div>
-            </div>
-          </div>
-        ) : null}
+        </div>
       </div>
     </div>
   );
 }
-
-

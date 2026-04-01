@@ -24,6 +24,228 @@ function getCurrentStatus(card: { history?: Array<{ status?: string }>; status?:
   return history[history.length - 1]?.status || card.status || "Concepts & Ideas";
 }
 
+function findNodeById(nodes: any[], id: string): any | null {
+  for (const n of nodes || []) {
+    if (n.id === id) return n;
+    const inner = findNodeById(n.subtasks || [], id);
+    if (inner) return inner;
+  }
+  return null;
+}
+
+function nodeDepth(nodes: any[], id: string, depth = 0): number | null {
+  for (const n of nodes || []) {
+    if (n.id === id) return depth;
+    const d = nodeDepth(n.subtasks || [], id, depth + 1);
+    if (d !== null) return d;
+  }
+  return null;
+}
+
+function completionSnapshot(nodes: any[], acc: Map<string, boolean> = new Map()): Map<string, boolean> {
+  for (const n of nodes || []) {
+    acc.set(n.id, Boolean(n.completed));
+    completionSnapshot(n.subtasks || [], acc);
+  }
+  return acc;
+}
+
+/** Apply the same completion state to the clicked node and everything under it. */
+function setSubtreeCompletion(node: any, completed: boolean, ts: string): any {
+  return {
+    ...node,
+    completed,
+    completedAt: completed ? ts : null,
+    subtasks: (node.subtasks || []).map((c: any) => setSubtreeCompletion(c, completed, ts)),
+  };
+}
+
+function replaceSubtaskById(nodes: any[], targetId: string, replacer: (n: any) => any): any[] {
+  return nodes.map((node) => {
+    if (node.id === targetId) return replacer(node);
+    if (node.subtasks?.length) {
+      return { ...node, subtasks: replaceSubtaskById(node.subtasks, targetId, replacer) };
+    }
+    return node;
+  });
+}
+
+/** Parent state is derived from direct children after each toggle. */
+function reconcileCompletion(nodes: any[], ts: string): any[] {
+  return nodes.map((node) => {
+    const children = reconcileCompletion(node.subtasks || [], ts);
+    if (children.length === 0) {
+      return { ...node, subtasks: children };
+    }
+    const shouldBeCompleted = children.every((c: any) => c.completed);
+    return {
+      ...node,
+      subtasks: children,
+      completed: shouldBeCompleted,
+      completedAt: shouldBeCompleted ? node.completedAt || ts : null,
+    };
+  });
+}
+
+function removeSubtaskFromTree(nodes: any[], targetId: string): any[] {
+  return (nodes || [])
+    .filter((n) => n.id !== targetId)
+    .map((n) => ({ ...n, subtasks: removeSubtaskFromTree(n.subtasks || [], targetId) }));
+}
+
+type LedgerEntryOut = {
+  timestamp: string;
+  cardId: string;
+  topicTitle: string;
+  track: string;
+  subjectId: string;
+  clickedSubjectId: string;
+  clickedSubjectLabel: string;
+  eventKind: "parent_complete" | "leaf_complete" | "parent_reopen" | "leaf_reopen";
+  title: string;
+  fromStatus: string;
+  toStatus: string;
+  comment: string;
+};
+
+function buildSingleLedgerEntry(args: {
+  card: any;
+  subtasksAfter: any[];
+  clickedId: string;
+  clickedHadChildren: boolean;
+  targetWasCompleted: boolean;
+  beforeSnap: Map<string, boolean>;
+  afterSnap: Map<string, boolean>;
+  ts: string;
+}): LedgerEntryOut {
+  const {
+    card,
+    subtasksAfter,
+    clickedId,
+    clickedHadChildren,
+    targetWasCompleted,
+    beforeSnap,
+    afterSnap,
+    ts,
+  } = args;
+
+  const changedIds: string[] = [];
+  for (const [id, done] of afterSnap.entries()) {
+    if (done !== Boolean(beforeSnap.get(id))) changedIds.push(id);
+  }
+
+  const topicTitle = String(card.title || "Untitled");
+  const clickedNode = findNodeById(subtasksAfter, clickedId);
+  const clickedSubjectLabel = String(clickedNode?.text || "task");
+  const action = targetWasCompleted ? "reopened" : "completed";
+  const transition = targetWasCompleted
+    ? { fromStatus: "Checked", toStatus: "Open" }
+    : { fromStatus: "Open", toStatus: "Checked" };
+  const base = {
+    timestamp: ts,
+    cardId: card.id,
+    topicTitle,
+    track: card.track,
+    clickedSubjectId: clickedId,
+    clickedSubjectLabel,
+    fromStatus: transition.fromStatus,
+    toStatus: transition.toStatus,
+    comment: "",
+  };
+
+  if (clickedHadChildren) {
+    return {
+      ...base,
+      subjectId: clickedId,
+      eventKind: targetWasCompleted ? "parent_reopen" : "parent_complete",
+      title: `${topicTitle}: [${clickedSubjectLabel}] ${action}`,
+    };
+  }
+
+  const changedParentNodes = changedIds.filter((id) => {
+    const node = findNodeById(subtasksAfter, id);
+    return node && Array.isArray(node.subtasks) && node.subtasks.length > 0;
+  });
+
+  if (changedParentNodes.length > 0) {
+    let selectedParentId = changedParentNodes[0];
+    let selectedParentDepth = nodeDepth(subtasksAfter, selectedParentId) ?? 999;
+
+    for (const id of changedParentNodes.slice(1)) {
+      const depth = nodeDepth(subtasksAfter, id) ?? 999;
+      if (depth < selectedParentDepth) {
+        selectedParentId = id;
+        selectedParentDepth = depth;
+      }
+    }
+
+    return {
+      ...base,
+      subjectId: selectedParentId,
+      eventKind: targetWasCompleted ? "parent_reopen" : "parent_complete",
+      title: `${topicTitle}: [${clickedSubjectLabel}] ${action}`,
+    };
+  }
+
+  return {
+    ...base,
+    subjectId: clickedId,
+    eventKind: targetWasCompleted ? "leaf_reopen" : "leaf_complete",
+    title: `${topicTitle}: [${clickedSubjectLabel}] ${action}`,
+  };
+
+  if (clickedHadChildren) {
+    return {
+      ...base,
+      subjectId: clickedId,
+      eventKind: targetWasCompleted ? "parent_reopen" : "parent_complete",
+      title: `${topicTitle} — Parent ${action} (${node?.text || "task"})`,
+    };
+  }
+
+  const parentNodes = changedIds.filter((id) => {
+    const n = findNodeById(subtasksAfter, id);
+    return n && Array.isArray(n.subtasks) && n.subtasks.length > 0;
+  });
+
+  if (parentNodes.length > 0) {
+    let best = parentNodes[0];
+    let bestDepth = nodeDepth(subtasksAfter, best) ?? 999;
+    for (const id of parentNodes.slice(1)) {
+      const d = nodeDepth(subtasksAfter, id) ?? 999;
+      if (d < bestDepth) {
+        best = id;
+        bestDepth = d;
+      }
+    }
+    const n = findNodeById(subtasksAfter, best);
+    return {
+      ...base,
+      subjectId: best,
+      eventKind: targetWasCompleted ? "parent_reopen" : "parent_complete",
+      title: `${topicTitle} — Parent topic ${action} (${n?.text || "rollup"})`,
+    };
+  }
+
+  const leaf = findNodeById(subtasksAfter, clickedId);
+  return {
+    ...base,
+    subjectId: clickedId,
+    eventKind: targetWasCompleted ? "leaf_reopen" : "leaf_complete",
+    title: `${topicTitle}: [${leaf?.text || ""}] ${action}`,
+  };
+}
+
+function buildSubtasksFromLines(taskLines: string[]) {
+  return taskLines.map((text) => ({
+    id: createId(),
+    text,
+    completed: false,
+    completedAt: null,
+    subtasks: [] as any[],
+  }));
+}
+
 async function readJson(filePath: string) {
   const raw = await fs.readFile(filePath, "utf8");
   return JSON.parse(raw);
@@ -101,133 +323,92 @@ async function buildPortfolioCommitMessage(
   labRoot: string,
   portfolioRoot: string
 ): Promise<string> {
-  const kanbanRel = "src/data/kanban.json";
-  const kanbanAbs = path.join(portfolioRoot, "src", "data", "kanban.json");
+  const snapshotRel = "src/data/labSnapshot.json";
+  const snapshotAbs = path.join(portfolioRoot, "src", "data", "labSnapshot.json");
 
-  const baseKanbanRaw = await readGitFile(portfolioRoot, "HEAD", kanbanRel);
-  const baseKanban = safeParseJson(baseKanbanRaw);
-  const currKanbanRaw = await fs.readFile(kanbanAbs, "utf8").catch(() => null);
-  const currKanban = safeParseJson(currKanbanRaw);
+  const baseSnapshotRaw = await readGitFile(portfolioRoot, "HEAD", snapshotRel);
+  const baseSnapshot = safeParseJson(baseSnapshotRaw);
+  const currSnapshotRaw = await fs.readFile(snapshotAbs, "utf8").catch(() => null);
+  const currSnapshot = safeParseJson(currSnapshotRaw);
 
-  const shortStatus = (status: unknown) =>
-    String(status || "")
-      .trim()
-      .replace(/[-_]/g, " ")
-      .replace(/\b\w/g, (char) => char.toUpperCase());
-
-  const shortTrack = (track: unknown) => {
-    const t = String(track || "").trim();
-    return t ? t : "Track?";
+  const snapshotTrack = (track: unknown) => {
+    const value = String(track || "").trim();
+    return value ? value : "Track?";
   };
 
-  const shortTitle = (title: unknown) => {
-    const t = String(title || "").trim();
-    return t ? t : "Untitled";
+  const snapshotTitle = (title: unknown) => {
+    const value = String(title || "").trim();
+    return value ? value : "Untitled";
   };
 
-  const cardSummary = (task: any) => {
-    const title = shortTitle(task?.title);
-    const status = shortStatus(task?.status);
-    const track = shortTrack(task?.track);
-    return `${title} (${status || "?"}, ${track})`;
+  const latestActivitySummary = (snapshot: any) => {
+    const latest = snapshot?.latestActivity;
+    if (!latest) return "Research ledger sync";
+    const topicTitle = snapshotTitle(latest.topicTitle);
+    const taskTitle = String(latest.taskTitle || "").trim();
+    const track = snapshotTrack(latest.track);
+    return taskTitle ? `${topicTitle}: [${taskTitle}] (${track})` : `${topicTitle} (${track})`;
   };
 
-  const changeLines: string[] = [];
+  const snapshotChangeLines: string[] = [];
 
-  // ---- Kanban diff (from portfolio repo) ----
-  if (Array.isArray(baseKanban) && Array.isArray(currKanban)) {
-    const baseMap = new Map<string, any>();
-    for (const task of baseKanban) {
-      const id = normalizeId(task as { id?: unknown });
-      if (id) baseMap.set(id, task);
-    }
+  const baseLatest = JSON.stringify((baseSnapshot as any)?.latestActivity ?? null);
+  const currLatest = JSON.stringify((currSnapshot as any)?.latestActivity ?? null);
+  const baseSyncedAt = String((baseSnapshot as any)?.syncedAt ?? "");
+  const currSyncedAt = String((currSnapshot as any)?.syncedAt ?? "");
 
-    const currMap = new Map<string, any>();
-    for (const task of currKanban) {
-      const id = normalizeId(task as { id?: unknown });
-      if (id) currMap.set(id, task);
-    }
-
-    for (const [id, currTask] of currMap.entries()) {
-      const prevTask = baseMap.get(id);
-      if (!prevTask) {
-        changeLines.push(`+ ${cardSummary(currTask)}`);
-        continue;
-      }
-
-      const prevStatus = String((prevTask as any)?.status ?? "").toLowerCase();
-      const currStatus = String((currTask as any)?.status ?? "").toLowerCase();
-      const prevUpdatedAt = String((prevTask as any)?.updatedAt ?? "");
-      const currUpdatedAt = String((currTask as any)?.updatedAt ?? "");
-      const prevTrack = String((prevTask as any)?.track ?? "").toLowerCase();
-      const currTrack = String((currTask as any)?.track ?? "").toLowerCase();
-      const prevTitle = String((prevTask as any)?.title ?? "").trim();
-      const currTitle = String((currTask as any)?.title ?? "").trim();
-
-      const changed =
-        prevStatus !== currStatus ||
-        prevUpdatedAt !== currUpdatedAt ||
-        prevTrack !== currTrack ||
-        prevTitle !== currTitle;
-
-      if (changed) {
-        changeLines.push(`~ ${cardSummary(currTask)}`);
-      }
-    }
-
-    for (const [id, prevTask] of baseMap.entries()) {
-      if (!currMap.has(id)) {
-        changeLines.push(`- ${shortTitle(prevTask?.title)} (removed)`);
-      }
-    }
+  if (!baseSnapshot && currSnapshot) {
+    snapshotChangeLines.push(`+ ${latestActivitySummary(currSnapshot)}`);
+  } else if (baseSnapshot && !currSnapshot) {
+    snapshotChangeLines.push("- Research ledger snapshot removed");
+  } else if (baseLatest !== currLatest) {
+    snapshotChangeLines.push(`~ ${latestActivitySummary(currSnapshot)}`);
+  } else if (baseSyncedAt !== currSyncedAt) {
+    snapshotChangeLines.push("~ Research ledger sync");
   }
 
-  // ---- Todo completions (from research-lab repo) ----
-  const todosRel = "data/todos.json";
-  const todosAbs = path.join(labRoot, "data", "todos.json");
+  const snapshotTodosRel = "data/todos.json";
+  const snapshotTodosAbs = path.join(labRoot, "data", "todos.json");
 
-  const baseTodosRaw = await readGitFile(labRoot, "HEAD", todosRel);
-  const baseTodos = safeParseJson(baseTodosRaw);
-  const currTodosRaw = await fs.readFile(todosAbs, "utf8").catch(() => null);
-  const currTodos = safeParseJson(currTodosRaw);
+  const snapshotBaseTodosRaw = await readGitFile(labRoot, "HEAD", snapshotTodosRel);
+  const snapshotBaseTodos = safeParseJson(snapshotBaseTodosRaw);
+  const snapshotCurrTodosRaw = await fs.readFile(snapshotTodosAbs, "utf8").catch(() => null);
+  const snapshotCurrTodos = safeParseJson(snapshotCurrTodosRaw);
 
-  if (Array.isArray(currTodos)) {
-    const baseTodoById = new Map<string, any>();
-    if (Array.isArray(baseTodos)) {
-      for (const t of baseTodos) {
-        const id = normalizeId(t as { id?: unknown });
-        if (id) baseTodoById.set(id, t);
+  if (Array.isArray(snapshotCurrTodos)) {
+    const snapshotBaseTodoById = new Map<string, any>();
+    if (Array.isArray(snapshotBaseTodos)) {
+      for (const todo of snapshotBaseTodos) {
+        const id = normalizeId(todo as { id?: unknown });
+        if (id) snapshotBaseTodoById.set(id, todo);
       }
     }
 
-    for (const todo of currTodos) {
+    for (const todo of snapshotCurrTodos) {
       const id = normalizeId(todo as { id?: unknown });
-      const text = shortTitle((todo as any)?.text ?? (todo as any)?.title ?? "");
+      const text = snapshotTitle((todo as any)?.text ?? (todo as any)?.title ?? "");
       const currCompletedAt = (todo as any)?.completedAt ? String((todo as any).completedAt) : null;
-      if (!id) continue;
-      if (!currCompletedAt) continue;
+      if (!id || !currCompletedAt) continue;
 
-      const prevTodo = baseTodoById.get(id);
+      const prevTodo = snapshotBaseTodoById.get(id);
       const prevCompletedAt =
         prevTodo && (prevTodo as any)?.completedAt ? String((prevTodo as any).completedAt) : null;
 
-      // Only include tasks that are completed now and whose completion time changed
-      // since the last push (e.g., checked off for the first time or re-checked).
       if (prevCompletedAt !== currCompletedAt) {
-        changeLines.push(`${text} (completed)`);
+        snapshotChangeLines.push(`${text} (completed)`);
       }
     }
   }
 
-  if (changeLines.length === 0) return "No changes";
+  if (snapshotChangeLines.length === 0) return "Research ledger sync";
 
-  // Keep messages short and readable.
-  const MAX_LINES = 8;
-  const shown = changeLines.slice(0, MAX_LINES);
-  const remaining = changeLines.length - shown.length;
+  const SNAPSHOT_MAX_LINES = 8;
+  const snapshotShown = snapshotChangeLines.slice(0, SNAPSHOT_MAX_LINES);
+  const snapshotRemaining = snapshotChangeLines.length - snapshotShown.length;
 
-  const suffix = remaining > 0 ? `, +${remaining} more` : "";
-  return `${shown.join(", ")}${suffix}`;
+  const snapshotSuffix = snapshotRemaining > 0 ? `, +${snapshotRemaining} more` : "";
+  return `${snapshotShown.join(", ")}${snapshotSuffix}`;
+
 }
 
 async function publishRepo(repoRoot: string, message: string) {
@@ -248,33 +429,66 @@ function researchLabPersistence() {
         return;
       }
 
-      if (req.method === "POST" && url.pathname === "/api/cards") {
+      const rawPath = url.pathname;
+      const reqPath =
+        rawPath === "/research-lab" || rawPath.startsWith("/research-lab/")
+          ? rawPath.slice("/research-lab".length) || "/"
+          : rawPath;
+
+      if (req.method === "GET" && reqPath === "/api/health") {
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (req.method === "GET" && reqPath === "/api/cards") {
+        try {
+          const db = await readJson(DB_PATH);
+          sendJson(res, 200, { cards: Array.isArray(db) ? db : [] });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to read cards.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "GET" && reqPath === "/api/ledger") {
+        try {
+          const ledger = await readJsonOrDefault(LEDGER_PATH, []);
+          sendJson(res, 200, { ledger: Array.isArray(ledger) ? ledger : [] });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to read ledger.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "POST" && reqPath === "/api/cards") {
         try {
           const body = JSON.parse(await readBody(req));
           const db = await readJson(DB_PATH);
-          const timestamp = new Date().toISOString();
+          const title = String(body.title || "").trim() || "Untitled";
+          const taskLines = String(body.tasksText || body.tasks || "")
+            .split(/\r?\n/)
+            .map((l: string) => l.trim())
+            .filter(Boolean);
+          const subtasks =
+            Array.isArray(body.subtasks) && body.subtasks.length
+              ? body.subtasks
+              : taskLines.length
+                ? buildSubtasksFromLines(taskLines)
+                : buildSubtasksFromLines([title]);
           const card = {
             id: createId(),
-            title: String(body.title || "").trim() || "Untitled",
+            title,
             track: body.track === "#Math" ? "#Math" : "#Code",
             description: String(body.description || "").trim(),
-            archived: false,
-            archiveReason: null,
             links: {
               githubUrl: String(body.githubUrl || "").trim(),
               blogUrl: String(body.blogUrl || "").trim(),
             },
-            history: [
-              {
-                status: body.status || "Concepts & Ideas",
-                at: timestamp,
-                comment: String(body.description || "").trim(),
-                metadata: {
-                  githubUrl: String(body.githubUrl || "").trim(),
-                  blogUrl: String(body.blogUrl || "").trim(),
-                },
-              },
-            ],
+            subtasks,
           };
 
           db.push(card);
@@ -288,10 +502,192 @@ function researchLabPersistence() {
         return;
       }
 
-      if (req.method === "PATCH" && url.pathname.startsWith("/api/cards/")) {
+      if (req.method === "POST" && reqPath === "/api/topics") {
         try {
           const body = JSON.parse(await readBody(req));
-          const cardId = decodeURIComponent(url.pathname.replace("/api/cards/", ""));
+          const title = String(body.title || "").trim();
+          if (!title) {
+            sendJson(res, 400, { error: "Topic title is required." });
+            return;
+          }
+          const db = await readJson(DB_PATH);
+          const taskLines = String(body.tasksText || "")
+            .split(/\r?\n/)
+            .map((l: string) => l.trim())
+            .filter(Boolean);
+          const subtasks = taskLines.length
+            ? buildSubtasksFromLines(taskLines)
+            : buildSubtasksFromLines(["First step"]);
+          const card = {
+            id: createId(),
+            title,
+            track: body.track === "#Math" ? "#Math" : "#Code",
+            description: "",
+            links: { githubUrl: "", blogUrl: "" },
+            subtasks,
+          };
+          db.push(card);
+          await writeJson(DB_PATH, db);
+          sendJson(res, 200, { card });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to create topic.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "POST" && reqPath === "/api/subtasks/toggle") {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const topicId = String(body.topicId || "").trim();
+          const subtaskId = String(body.subtaskId || "").trim();
+          if (!topicId || !subtaskId) {
+            sendJson(res, 400, { error: "topicId and subtaskId are required." });
+            return;
+          }
+          const db = await readJson(DB_PATH);
+          const ledger = await readJsonOrDefault(LEDGER_PATH, []);
+          const cardIndex = db.findIndex((card: { id?: string }) => card.id === topicId);
+          if (cardIndex === -1) {
+            sendJson(res, 404, { error: "Topic not found." });
+            return;
+          }
+          const card = db[cardIndex];
+          const subtasks = Array.isArray(card.subtasks) ? card.subtasks : [];
+          const target = findNodeById(subtasks, subtaskId);
+          if (!target) {
+            sendJson(res, 404, { error: "Subtask not found." });
+            return;
+          }
+
+          const ts = new Date().toISOString();
+          const beforeSnap = completionSnapshot(subtasks);
+          const clickedHadChildren = Array.isArray(target.subtasks) && target.subtasks.length > 0;
+          const targetWasCompleted = Boolean(target.completed);
+
+          let nextSubtasks = replaceSubtaskById(subtasks, subtaskId, (n) =>
+            setSubtreeCompletion(n, !targetWasCompleted, ts)
+          );
+          nextSubtasks = reconcileCompletion(nextSubtasks, ts);
+          const afterSnap = completionSnapshot(nextSubtasks);
+
+          const ledgerEntry = buildSingleLedgerEntry({
+            card,
+            subtasksAfter: nextSubtasks,
+            clickedId: subtaskId,
+            clickedHadChildren,
+            targetWasCompleted,
+            beforeSnap,
+            afterSnap,
+            ts,
+          });
+
+          const updatedCard = {
+            ...card,
+            subtasks: nextSubtasks,
+          };
+          db[cardIndex] = updatedCard;
+          const log = Array.isArray(ledger) ? ledger : [];
+          log.push(ledgerEntry);
+          await Promise.all([writeJson(DB_PATH, db), writeJson(LEDGER_PATH, log)]);
+          sendJson(res, 200, { card: updatedCard, ledgerEntry });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to toggle subtask.",
+          });
+        }
+        return;
+      }
+
+      const subtaskAddMatch = reqPath.match(/^\/api\/topics\/([^/]+)\/subtasks$/);
+      if (req.method === "POST" && subtaskAddMatch) {
+        try {
+          const topicId = decodeURIComponent(subtaskAddMatch[1]);
+          const body = JSON.parse(await readBody(req));
+          const text = String(body.text || "").trim();
+          if (!text) {
+            sendJson(res, 400, { error: "Sub-task text is required." });
+            return;
+          }
+          const parentSubtaskId = body.parentSubtaskId
+            ? String(body.parentSubtaskId).trim()
+            : null;
+
+          const db = await readJson(DB_PATH);
+          const cardIndex = db.findIndex((card: { id?: string }) => card.id === topicId);
+          if (cardIndex === -1) {
+            sendJson(res, 404, { error: "Topic not found." });
+            return;
+          }
+          const card = db[cardIndex];
+          const subtasks = Array.isArray(card.subtasks) ? card.subtasks : [];
+          const newNode = {
+            id: createId(),
+            text,
+            completed: false,
+            completedAt: null,
+            subtasks: [] as any[],
+          };
+
+          if (parentSubtaskId && !findNodeById(subtasks, parentSubtaskId)) {
+            sendJson(res, 404, { error: "Parent sub-task not found." });
+            return;
+          }
+
+          const nextSubtasks = parentSubtaskId
+            ? replaceSubtaskById(subtasks, parentSubtaskId, (p) => ({
+                ...p,
+                subtasks: [...(p.subtasks || []), newNode],
+              }))
+            : [...subtasks, newNode];
+
+          const updatedCard = { ...card, subtasks: nextSubtasks };
+          db[cardIndex] = updatedCard;
+          await writeJson(DB_PATH, db);
+          sendJson(res, 200, { card: updatedCard, subtask: newNode });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to add sub-task.",
+          });
+        }
+        return;
+      }
+
+      const subtaskDelMatch = reqPath.match(/^\/api\/topics\/([^/]+)\/subtasks\/([^/]+)$/);
+      if (req.method === "DELETE" && subtaskDelMatch) {
+        try {
+          const topicId = decodeURIComponent(subtaskDelMatch[1]);
+          const subtaskId = decodeURIComponent(subtaskDelMatch[2]);
+          const db = await readJson(DB_PATH);
+          const cardIndex = db.findIndex((card: { id?: string }) => card.id === topicId);
+          if (cardIndex === -1) {
+            sendJson(res, 404, { error: "Topic not found." });
+            return;
+          }
+          const card = db[cardIndex];
+          const subtasks = Array.isArray(card.subtasks) ? card.subtasks : [];
+          if (!findNodeById(subtasks, subtaskId)) {
+            sendJson(res, 404, { error: "Sub-task not found." });
+            return;
+          }
+          const nextSubtasks = removeSubtaskFromTree(subtasks, subtaskId);
+          const updatedCard = { ...card, subtasks: nextSubtasks };
+          db[cardIndex] = updatedCard;
+          await writeJson(DB_PATH, db);
+          sendJson(res, 200, { card: updatedCard });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to delete sub-task.",
+          });
+        }
+        return;
+      }
+
+      if (req.method === "PATCH" && reqPath.startsWith("/api/cards/")) {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const cardId = decodeURIComponent(reqPath.replace("/api/cards/", ""));
           const db = await readJson(DB_PATH);
           const cardIndex = db.findIndex((card: { id?: string }) => card.id === cardId);
 
@@ -320,9 +716,9 @@ function researchLabPersistence() {
         return;
       }
 
-      if (req.method === "DELETE" && url.pathname.startsWith("/api/cards/")) {
+      if (req.method === "DELETE" && reqPath.startsWith("/api/cards/")) {
         try {
-          const cardId = decodeURIComponent(url.pathname.replace("/api/cards/", ""));
+          const cardId = decodeURIComponent(reqPath.replace("/api/cards/", ""));
           const db = await readJson(DB_PATH);
           const nextDb = db.filter((card: { id?: string }) => card.id !== cardId);
 
@@ -341,36 +737,7 @@ function researchLabPersistence() {
         return;
       }
 
-      if (req.method === "POST" && url.pathname === "/api/archive-card") {
-        try {
-          const body = JSON.parse(await readBody(req));
-          const db = await readJson(DB_PATH);
-          const cardIndex = db.findIndex((card: { id?: string }) => card.id === body.cardId);
-
-          if (cardIndex === -1) {
-            sendJson(res, 404, { error: "Card not found." });
-            return;
-          }
-
-          const updatedCard = {
-            ...db[cardIndex],
-            archived: true,
-            archiveReason: String(body.reason || "archived"),
-            archivedAt: new Date().toISOString(),
-          };
-
-          db[cardIndex] = updatedCard;
-          await writeJson(DB_PATH, db);
-          sendJson(res, 200, { card: updatedCard });
-        } catch (error) {
-          sendJson(res, 500, {
-            error: error instanceof Error ? error.message : "Failed to archive card.",
-          });
-        }
-        return;
-      }
-
-      if (req.method === "POST" && url.pathname === "/api/trash-card") {
+      if (req.method === "POST" && reqPath === "/api/trash-card") {
         try {
           const body = JSON.parse(await readBody(req));
           const db = await readJson(DB_PATH);
@@ -402,100 +769,7 @@ function researchLabPersistence() {
         return;
       }
 
-      if (req.method === "POST" && url.pathname === "/api/unarchive-card") {
-        try {
-          const body = JSON.parse(await readBody(req));
-          const db = await readJson(DB_PATH);
-          const cardIndex = db.findIndex((card: { id?: string }) => card.id === body.cardId);
-
-          if (cardIndex === -1) {
-            sendJson(res, 404, { error: "Card not found." });
-            return;
-          }
-
-          const updatedCard = {
-            ...db[cardIndex],
-            archived: false,
-            archiveReason: null,
-            archivedAt: null,
-          };
-
-          db[cardIndex] = updatedCard;
-          await writeJson(DB_PATH, db);
-          sendJson(res, 200, { card: updatedCard });
-        } catch (error) {
-          sendJson(res, 500, {
-            error: error instanceof Error ? error.message : "Failed to unarchive card.",
-          });
-        }
-        return;
-      }
-
-      if (req.method === "POST" && url.pathname === "/api/commit-move") {
-        try {
-          const body = JSON.parse(await readBody(req));
-          const db = await readJson(DB_PATH);
-          const ledger = await readJson(LEDGER_PATH);
-          const cardIndex = db.findIndex((card: { id?: string }) => card.id === body.cardId);
-
-          if (cardIndex === -1) {
-            sendJson(res, 404, { error: "Card not found in db.json." });
-            return;
-          }
-
-          const card = db[cardIndex];
-          const fromStatus = getCurrentStatus(card);
-          const toStatus = String(body.toStatus || "").trim();
-
-          if (!toStatus || toStatus === fromStatus) {
-            sendJson(res, 400, { error: "Move is unchanged." });
-            return;
-          }
-
-          const timestamp = new Date().toISOString();
-          const updatedCard = {
-            ...card,
-            description: String(body.comment ?? card.description ?? ""),
-            links: {
-              githubUrl: String(body.githubUrl ?? card.links?.githubUrl ?? ""),
-              blogUrl: String(body.blogUrl ?? card.links?.blogUrl ?? ""),
-            },
-            history: [
-              ...(Array.isArray(card.history) ? card.history : []),
-              {
-                status: toStatus,
-                at: timestamp,
-                comment: String(body.comment ?? ""),
-                metadata: {
-                  githubUrl: String(body.githubUrl ?? card.links?.githubUrl ?? ""),
-                  blogUrl: String(body.blogUrl ?? card.links?.blogUrl ?? ""),
-                },
-              },
-            ],
-          };
-
-          db[cardIndex] = updatedCard;
-          ledger.push({
-            timestamp,
-            cardId: updatedCard.id,
-            title: updatedCard.title,
-            track: updatedCard.track,
-            fromStatus,
-            toStatus,
-            comment: String(body.comment ?? ""),
-          });
-
-          await Promise.all([writeJson(DB_PATH, db), writeJson(LEDGER_PATH, ledger)]);
-          sendJson(res, 200, { card: updatedCard });
-        } catch (error) {
-          sendJson(res, 500, {
-            error: error instanceof Error ? error.message : "Failed to commit move.",
-          });
-        }
-        return;
-      }
-
-      if (req.method === "POST" && url.pathname === "/api/todos/add") {
+      if (req.method === "POST" && reqPath === "/api/todos/add") {
         try {
           const body = JSON.parse(await readBody(req));
           const text = String(body.text || "").trim();
@@ -525,7 +799,7 @@ function researchLabPersistence() {
         return;
       }
 
-      if (req.method === "POST" && url.pathname === "/api/todos/toggle") {
+      if (req.method === "POST" && reqPath === "/api/todos/toggle") {
         try {
           const body = JSON.parse(await readBody(req));
           const todoId = String(body.id || "").trim();
@@ -560,7 +834,7 @@ function researchLabPersistence() {
         return;
       }
 
-      if (req.method === "POST" && url.pathname === "/api/sync") {
+      if (req.method === "POST" && reqPath === "/api/sync") {
         try {
           const result = await runCommand("node scripts/sync.js", LAB_ROOT);
           sendJson(res, 200, {
@@ -576,7 +850,7 @@ function researchLabPersistence() {
         return;
       }
 
-      if (req.method === "POST" && url.pathname === "/api/publish") {
+      if (req.method === "POST" && reqPath === "/api/publish") {
         try {
           const publishMessage = await buildPortfolioCommitMessage(LAB_ROOT, PORTFOLIO_ROOT);
           const researchLab = await publishRepo(LAB_ROOT, publishMessage);
@@ -620,5 +894,3 @@ export default defineConfig({
     port: 5173
   }
 });
-
-

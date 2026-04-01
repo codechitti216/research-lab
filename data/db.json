@@ -10,34 +10,36 @@
       "githubUrl": "",
       "blogUrl": ""
     },
-    "history": [
+    "subtasks": [
       {
-        "status": "Concepts & Ideas",
-        "at": "2026-03-16T16:08:09.209Z",
-        "comment": "Just tryna understand the fundamentals of Gaussian Splatting.",
-        "metadata": {
-          "githubUrl": "",
-          "blogUrl": ""
-        }
-      },
-      {
-        "status": "Setup",
-        "at": "2026-03-17T12:30:01.407Z",
-        "comment": "Setting this up in CARLA.",
-        "metadata": {
-          "githubUrl": "",
-          "blogUrl": ""
-        }
-      },
-      {
-        "status": "Concepts & Ideas",
-        "at": "2026-03-17T12:33:16.608Z",
-        "comment": "",
-        "metadata": {
-          "githubUrl": "",
-          "blogUrl": ""
-        }
+        "id": "st-1773677289209-root",
+        "text": "Fundamentals & reading",
+        "completed": true,
+        "completedAt": "2026-04-01T19:07:22.130Z",
+        "subtasks": []
       }
     ]
+  },
+  {
+    "id": "1775065363877-9306e861e036f",
+    "title": "CARLA setup notes",
+    "track": "#Code",
+    "description": "",
+    "archived": true,
+    "archiveReason": "archived",
+    "links": {
+      "githubUrl": "",
+      "blogUrl": ""
+    },
+    "subtasks": [
+      {
+        "id": "1775065363877-146100def035",
+        "text": "wdf",
+        "completed": false,
+        "completedAt": null,
+        "subtasks": []
+      }
+    ],
+    "archivedAt": "2026-04-01T17:42:46.420Z"
   }
 ]
