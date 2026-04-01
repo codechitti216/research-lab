@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import seedCards from "../data/db.json";
-import seedLedger from "../data/ledger.json";
 
 const TRACK_TAGS = ["#Math", "#Code"];
 const BUILD_STAMP = __BUILD_STAMP__;
@@ -500,11 +499,11 @@ export function App() {
   const [togglingSubId, setTogglingSubId] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isClearingLedger, setIsClearingLedger] = useState(false);
   const [error, setError] = useState("");
   const [commandMessage, setCommandMessage] = useState("");
-  const [ledgerEntries, setLedgerEntries] = useState(() =>
-    Array.isArray(seedLedger) ? seedLedger : []
-  );
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [ledgerEntries, setLedgerEntries] = useState([]);
   /** Inline add: parentSubtaskId null = top-level under topic */
   const [addSlot, setAddSlot] = useState(null);
   const [addDraft, setAddDraft] = useState("");
@@ -718,6 +717,23 @@ export function App() {
     }
   };
 
+  const handleClearLedger = async () => {
+    if (!isInteractive || isClearingLedger) return;
+
+    try {
+      setIsClearingLedger(true);
+      setError("");
+      setCommandMessage("");
+      await requestJson("/api/ledger/clear", { method: "POST" });
+      setLedgerEntries([]);
+      setCommandMessage("Research ledger cleared.");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsClearingLedger(false);
+    }
+  };
+
   const handleCreateTopic = async () => {
     if (!isInteractive) return;
     const title = topicTitle.trim();
@@ -874,7 +890,7 @@ export function App() {
               </span>
               <button
                 type="button"
-                disabled={isSyncing || isPublishing}
+                disabled={isSyncing || isPublishing || isClearingLedger}
                 onClick={() =>
                   handleCommand("/api/sync", setIsSyncing, setIsSyncing, "Portfolio sync complete.")
                 }
@@ -884,7 +900,7 @@ export function App() {
               </button>
               <button
                 type="button"
-                disabled={isPublishing || isSyncing}
+                disabled={isPublishing || isSyncing || isClearingLedger}
                 onClick={() =>
                   handleCommand(
                     "/api/publish",
@@ -896,6 +912,14 @@ export function App() {
                 className="rounded-sm border-2 border-neutral-900 bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isPublishing ? "Publishing…" : "Publish to Cloud"}
+              </button>
+              <button
+                type="button"
+                disabled={isClearingLedger || isSyncing || isPublishing}
+                onClick={() => setClearConfirmOpen(true)}
+                className="rounded-sm border-2 border-red-700 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isClearingLedger ? "Clearing…" : "Clear History"}
               </button>
             </div>
           ) : (
@@ -946,6 +970,48 @@ export function App() {
                   autoFocus
                 >
                   Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {clearConfirmOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/40 px-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="clear-ledger-title"
+            onClick={() => setClearConfirmOpen(false)}
+          >
+            <div
+              className="w-full max-w-md border border-neutral-300 bg-white p-5 shadow-xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h2 id="clear-ledger-title" className="font-serif text-xl font-medium text-neutral-900">
+                Clear research ledger?
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-neutral-700">
+                This permanently deletes the entire ledger history from disk. This cannot be undone.
+              </p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setClearConfirmOpen(false)}
+                  className="rounded border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-800 hover:bg-neutral-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setClearConfirmOpen(false);
+                    await handleClearLedger();
+                  }}
+                  className="rounded bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800"
+                  autoFocus
+                >
+                  Clear ledger
                 </button>
               </div>
             </div>

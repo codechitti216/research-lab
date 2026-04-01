@@ -464,6 +464,18 @@ function researchLabPersistence() {
         return;
       }
 
+      if (req.method === "POST" && reqPath === "/api/ledger/clear") {
+        try {
+          await fs.unlink(LEDGER_PATH).catch(() => null);
+          sendJson(res, 200, { ok: true });
+        } catch (error) {
+          sendJson(res, 500, {
+            error: error instanceof Error ? error.message : "Failed to clear ledger.",
+          });
+        }
+        return;
+      }
+
       if (req.method === "POST" && reqPath === "/api/cards") {
         try {
           const body = JSON.parse(await readBody(req));
