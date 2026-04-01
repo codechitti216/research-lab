@@ -361,7 +361,7 @@ function GitHubGlyph() {
   );
 }
 
-function PublicLedgerView({ events }) {
+function PublicLedgerView({ events, activitySummary, activityHeatmap }) {
   return (
     <div className="min-h-screen bg-neutral-50 px-6 py-8 md:px-10">
       <div className="mx-auto max-w-5xl space-y-8">
@@ -381,20 +381,62 @@ function PublicLedgerView({ events }) {
 
         <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
           <aside className="border border-neutral-200 bg-white p-6">
-            <div className="text-xs uppercase tracking-[0.18em] text-neutral-400">GitHub</div>
-            <h2 className="mt-2 font-serif text-2xl font-medium text-neutral-900">research-lab</h2>
+            <div className="text-xs uppercase tracking-[0.18em] text-neutral-400">
+              Activity Signal
+            </div>
+            <h2 className="mt-2 font-serif text-2xl font-medium text-neutral-900">
+              GitHub-style Activity
+            </h2>
             <p className="mt-3 text-sm leading-relaxed text-neutral-600">
-              Source for the local task system, sync bridge, and the public ledger feed.
+              Rolling view of recent checked items and milestones from the lab mirror.
             </p>
-            <a
-              href={RESEARCH_LAB_REPO_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-5 inline-flex items-center gap-2 rounded border border-neutral-900 px-3 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-100"
-            >
-              <GitHubGlyph />
-              View Repository
-            </a>
+
+            <div className="mt-5 grid grid-cols-3 gap-3">
+              <div className="border border-neutral-200 p-3">
+                <div className="font-serif text-xl text-neutral-900">
+                  {activitySummary.totalEvents}
+                </div>
+                <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-neutral-400">
+                  Total Events
+                </div>
+              </div>
+              <div className="border border-neutral-200 p-3">
+                <div className="font-serif text-xl text-neutral-900">
+                  {activitySummary.activeDays}
+                </div>
+                <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-neutral-400">
+                  Active Days
+                </div>
+              </div>
+              <div className="border border-neutral-200 p-3">
+                <div className="font-serif text-xl text-neutral-900">
+                  {activitySummary.currentStreak}
+                </div>
+                <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-neutral-400">
+                  Current Streak
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-2 overflow-x-auto">
+              <div className="flex gap-1">
+                {activityHeatmap.map((week, index) => (
+                  <div key={`public-week-${index}`} className="grid grid-rows-7 gap-1">
+                    {week.map((day) => (
+                      <div
+                        key={day.key}
+                        title={`${day.label}: ${day.count} events`}
+                        className={`h-3 w-3 rounded-[2px] ${getIntensityClass(day.count)}`}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-neutral-400">
+                <span>Less</span>
+                <span>More</span>
+              </div>
+            </div>
           </aside>
 
           <section className="border border-neutral-200 bg-white p-6">
@@ -811,7 +853,13 @@ export function App() {
   };
 
   if (!isInteractive) {
-    return <PublicLedgerView events={publicLedgerEvents} />;
+    return (
+      <PublicLedgerView
+        events={publicLedgerEvents}
+        activitySummary={activitySummary}
+        activityHeatmap={activityHeatmap}
+      />
+    );
   }
 
   return (
