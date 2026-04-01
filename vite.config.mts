@@ -11,6 +11,7 @@ const LAB_ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PORTFOLIO_ROOT = path.join(LAB_ROOT, "..", "codechitti216.github.io");
 const DB_PATH = path.join(LAB_ROOT, "data", "db.json");
 const LEDGER_PATH = path.join(LAB_ROOT, "data", "ledger.json");
+const PUBLIC_LEDGER_PATH = path.join(LAB_ROOT, "src", "data", "publicLedger.json");
 const TRASH_LEDGER_PATH = path.join(LAB_ROOT, "data", "trash_ledger.json");
 const TODOS_PATH = path.join(LAB_ROOT, "data", "todos.json");
 const execAsync = promisify(exec);
@@ -252,6 +253,7 @@ async function readJson(filePath: string) {
 }
 
 async function writeJson(filePath: string, data: unknown) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
@@ -261,6 +263,13 @@ async function readJsonOrDefault(filePath: string, fallback: unknown) {
   } catch {
     return fallback;
   }
+}
+
+async function syncPublicLedgerSeed() {
+  const ledger = await readJsonOrDefault(LEDGER_PATH, []);
+  const normalized = Array.isArray(ledger) ? ledger : [];
+  await writeJson(PUBLIC_LEDGER_PATH, normalized);
+  return normalized;
 }
 
 async function readBody(req: NodeJS.ReadableStream) {
@@ -467,6 +476,7 @@ function researchLabPersistence() {
       if (req.method === "POST" && reqPath === "/api/ledger/clear") {
         try {
           await fs.unlink(LEDGER_PATH).catch(() => null);
+          await syncPublicLedgerSeed();
           sendJson(res, 200, { ok: true });
         } catch (error) {
           sendJson(res, 500, {
@@ -602,7 +612,7 @@ function researchLabPersistence() {
           db[cardIndex] = updatedCard;
           const log = Array.isArray(ledger) ? ledger : [];
           log.push(ledgerEntry);
-          await Promise.all([writeJson(DB_PATH, db), writeJson(LEDGER_PATH, log)]);
+          await Promise.all([writeJson(DB_PATH, db), writeJson(LEDGER_PATH, log), writeJson(PUBLIC_LEDGER_PATH, log)]);
           sendJson(res, 200, { card: updatedCard, ledgerEntry });
         } catch (error) {
           sendJson(res, 500, {
@@ -864,6 +874,7 @@ function researchLabPersistence() {
 
       if (req.method === "POST" && reqPath === "/api/publish") {
         try {
+          await syncPublicLedgerSeed();
           const publishMessage = await buildPortfolioCommitMessage(LAB_ROOT, PORTFOLIO_ROOT);
           const researchLab = await publishRepo(LAB_ROOT, publishMessage);
           const portfolio = await publishRepo(PORTFOLIO_ROOT, publishMessage);

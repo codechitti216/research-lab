@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import seedCards from "../data/db.json";
+import publicLedgerSeed from "./data/publicLedger.json";
 
 const TRACK_TAGS = ["#Math", "#Code"];
 const BUILD_STAMP = __BUILD_STAMP__;
@@ -503,7 +504,9 @@ export function App() {
   const [error, setError] = useState("");
   const [commandMessage, setCommandMessage] = useState("");
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [ledgerEntries, setLedgerEntries] = useState([]);
+  const [ledgerEntries, setLedgerEntries] = useState(() =>
+    Array.isArray(publicLedgerSeed) ? publicLedgerSeed : []
+  );
   /** Inline add: parentSubtaskId null = top-level under topic */
   const [addSlot, setAddSlot] = useState(null);
   const [addDraft, setAddDraft] = useState("");

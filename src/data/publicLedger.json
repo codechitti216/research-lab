@@ -1,0 +1,58 @@
+[
+  {
+    "timestamp": "2026-04-01T19:22:20.318Z",
+    "cardId": "1773677289209-26dfbc588a86e",
+    "topicTitle": "Understanding Gaussian Splatting in detail",
+    "track": "#Math",
+    "clickedSubjectId": "st-1773677289209-root",
+    "clickedSubjectLabel": "Fundamentals & reading",
+    "fromStatus": "Checked",
+    "toStatus": "Open",
+    "comment": "",
+    "subjectId": "st-1773677289209-root",
+    "eventKind": "leaf_reopen",
+    "title": "Understanding Gaussian Splatting in detail: [Fundamentals & reading] reopened"
+  },
+  {
+    "timestamp": "2026-04-01T19:22:21.615Z",
+    "cardId": "1773677289209-26dfbc588a86e",
+    "topicTitle": "Understanding Gaussian Splatting in detail",
+    "track": "#Math",
+    "clickedSubjectId": "st-1773677289209-root",
+    "clickedSubjectLabel": "Fundamentals & reading",
+    "fromStatus": "Open",
+    "toStatus": "Checked",
+    "comment": "",
+    "subjectId": "st-1773677289209-root",
+    "eventKind": "leaf_complete",
+    "title": "Understanding Gaussian Splatting in detail: [Fundamentals & reading] completed"
+  },
+  {
+    "timestamp": "2026-04-01T19:24:07.994Z",
+    "cardId": "1773677289209-26dfbc588a86e",
+    "topicTitle": "Understanding Gaussian Splatting in detail",
+    "track": "#Math",
+    "clickedSubjectId": "st-1773677289209-root",
+    "clickedSubjectLabel": "Fundamentals & reading",
+    "fromStatus": "Checked",
+    "toStatus": "Open",
+    "comment": "",
+    "subjectId": "st-1773677289209-root",
+    "eventKind": "leaf_reopen",
+    "title": "Understanding Gaussian Splatting in detail: [Fundamentals & reading] reopened"
+  },
+  {
+    "timestamp": "2026-04-01T19:27:31.696Z",
+    "cardId": "1773677289209-26dfbc588a86e",
+    "topicTitle": "Understanding Gaussian Splatting in detail",
+    "track": "#Math",
+    "clickedSubjectId": "1775071572889-737f21b1f1d96",
+    "clickedSubjectLabel": "Read about the Preliminary Problem statement of relative pose estimation and Stereo Calibration using Structure From Motion Concepts",
+    "fromStatus": "Open",
+    "toStatus": "Checked",
+    "comment": "",
+    "subjectId": "1775071572889-737f21b1f1d96",
+    "eventKind": "parent_complete",
+    "title": "Understanding Gaussian Splatting in detail: [Read about the Preliminary Problem statement of relative pose estimation and Stereo Calibration using Structure From Motion Concepts] completed"
+  }
+]
